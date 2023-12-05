@@ -16,6 +16,10 @@
 #include "doprecode.h"
 #include "logger.h"
 
+#if defined(USE_ACC)
+#include "dodecode_acc.h"
+#endif
+
 AgoraWorker::AgoraWorker(Config* cfg, MacScheduler* mac_sched, Stats* stats,
                          PhyStats* phy_stats, MessageInfo* message,
                          AgoraBuffer* buffer, FrameInfo* frame)
@@ -75,9 +79,16 @@ void AgoraWorker::InitializeWorker() {
       stats_);
 
   // Uplink workers
+#if defined(USE_ACC)
+  auto compute_decoding = std::make_shared<DoDecode_ACC>(
+      config_, tid, buffer_->GetDemod(), buffer_->GetDecod(), 
+      phy_stats_, stats_);
+#else
   auto compute_decoding = std::make_shared<DoDecode>(
       config_, tid, buffer_->GetDemod(), buffer_->GetDecod(), mac_sched_,
       phy_stats_, stats_);
+#endif
+
 
   auto compute_demul = std::make_shared<DoDemul>(
       config_, tid, buffer_->GetFft(), buffer_->GetUlBeamMatrix(),

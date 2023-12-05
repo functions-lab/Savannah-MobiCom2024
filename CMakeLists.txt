@@ -120,6 +120,9 @@ set(ENABLE_HDF5 False CACHE BOOL "ENABLE_HDF5 defaulting to 'False'")
 message(STATUS "ENABLE_HDF5:      ${ENABLE_HDF5}")
 set(TIME_EXCLUSIVE False CACHE BOOL "TIME_EXCLUSIVE defaulting to 'False'")
 message(STATUS "TIME_EXCLUSIVE:   ${TIME_EXCLUSIVE}")
+
+set(LDPC_TYPE FlexRAN CACHE STRING "LDPC_TYPE defaulting to 'FlexRAN', valid types are FlexRAN / ACC")
+message(STATUS "LDPC Mode:        ${LDPC_TYPE}")
 message(STATUS "--------------------------------\n--")
 
 if(RADIO_TYPE STREQUAL SOAPY_IRIS)
@@ -133,6 +136,13 @@ elseif(RADIO_TYPE STREQUAL PURE_UHD)
   add_definitions(-DUSE_PURE_UHD)
 else()
   message(STATUS "Enabled SIMULATION radio type")
+endif()
+
+if(LDPC_TYPE STREQUAL ACC)
+  message(STATUS "Enabled HW Intel ACC100 LDPC Decoding")
+  add_definitions(-DUSE_ACC)
+else()
+  message(STATUS "Enabled SW Intel FlexRAN LDPC Decoding")
 endif()
 
 #External Libraries / Depends
@@ -480,6 +490,7 @@ set(AGORA_SOURCES ${AGORA_SOURCES}
   src/agora/dodemul.cc
   src/agora/doprecode.cc
   src/agora/dodecode.cc
+  src/agora/dodecode_acc.cc
   src/mac/mac_thread_basestation.cc
   src/agora/txrx/packet_txrx_sim.cc
   src/agora/txrx/workers/txrx_worker_sim.cc)
