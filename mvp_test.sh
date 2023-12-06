@@ -36,6 +36,8 @@ function display_help {
     echo "  -g, --datagen  - Generate the data from the config file"
     echo "  -x, --execute  - Run the basestation"
     echo "  -u, --user     - Run the user"
+    echo "  -sx, --sudo-execute  - Run the basestation with sudo"
+    echo "  -su, --sudo-user     - Run the user with sudo"
 #     echo "  -v, --valgrind - Run the project with vlagrind"
     echo "  -r, --read     - Read the log of the latest test run"
     echo "  -c, --clean    - Clean the project"
@@ -115,6 +117,20 @@ function clean_project {
     cd ..
 }
 
+function exe_bs_sudo {
+    echo "Running the basestation with sudo..."
+    sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} $exe --conf_file=$config
+}
+
+function exe_user_sudo {
+    echo "Running the user with sudo..."
+    sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} $user --conf_file=$config \
+          --num_threads=2       \
+          --core_offset=10      \
+          --enable_slow_start=0
+}
+
+
 ################
 # Handle Inputs
 ################
@@ -145,6 +161,14 @@ case "$1" in
     "-u" | "--user")
         exe_user
         ;;
+
+    "-sx")
+        exe_bs_sudo
+        ;;
+    "-su")
+        exe_user_sudo
+        ;;
+    
 #     "-v" | "--valgrind")
 #         valgrind_exe
 #         ;;

@@ -1,23 +1,33 @@
 {
-    "bs_radio_num": 8,
-    "ue_radio_num": 8,
+    "bs_radio_num": 1,
+    "ue_radio_num": 1,
+    "fft_size": 1024,
+    "ofdm_data_num": 768,
+    "demul_block_size": 768,
     "frame_schedule": [
-        "PUUUUUUUUUUUUU"
+        "PUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
     ],
     "ul_mcs" : {
-      "mcs_index" : 17 /*64QAM, 438/1024*/
+      "modulation": "16QAM",
+      "code_rate": 0.333
     },
+
+    "dl_mcs" : {
+        "modulation": "16QAM",
+        "code_rate": 0.333
+    },
+
+    "sample_rate": 128.88e6,
     "bs_server_addr": "127.0.0.1",
     "bs_rru_addr": "127.0.0.1",
-    "fft_size": 2048,
-    "ofdm_data_num": 1200,
-    "demul_block_size": 64,
-    "freq_orthogonal_pilot": true,
+    "freq_orthogonal_pilot": false,
+    "group_pilot_sc": true,
+    "client_ul_pilot_syms": 2,
     /* Compute configuration */
-    "core_offset": 4,
+    "core_offset": 28,
     "exclude_cores": [
         0
     ],
-    "worker_thread_num": 22,
+    "worker_thread_num": 1,
     "socket_thread_num": 1
 }
