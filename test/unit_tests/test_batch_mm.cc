@@ -11,6 +11,7 @@
 #include "dodemul.h"
 #include "gettime.h"
 #include "mkl.h"
+#include "comms-lib.h"
 
 /*
  * Test 2x2xN cube slice-wise multiplication with 2x1xN matrix with a loop.
@@ -22,9 +23,9 @@ double time_batch_mm_arma_loop_slices(size_t vec_len, int dim,
   size_t tsc_start, tsc_end;
   double duration_ms;
   
-  arma::cx_cube cub_a(dim, dim, vec_len, arma::fill::randu);
-  arma::cx_cube cub_b(dim, 1, vec_len, arma::fill::randu);
-  arma::cx_cube cub_c(dim, 1, vec_len, arma::fill::zeros);
+  arma::cx_fcube cub_a(dim, dim, vec_len, arma::fill::randu);
+  arma::cx_fcube cub_b(dim, 1, vec_len, arma::fill::randu);
+  arma::cx_fcube cub_c(dim, 1, vec_len, arma::fill::zeros);
 
   tsc_start = GetTime::Rdtsc();
   for (size_t i = 0; i < vec_len; ++i) {
@@ -58,44 +59,44 @@ double time_batch_mm_arma_decomp_vec(size_t vec_len,
   double duration_ms;
 
   if (dim == 2) {
-    arma::cx_vec vec_a_1_1(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_1_2(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_2_1(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_2_2(vec_len, arma::fill::randu);
-    arma::cx_vec vec_b_1(vec_len, arma::fill::randu);
-    arma::cx_vec vec_b_2(vec_len, arma::fill::randu);
-    arma::cx_vec vec_c_1(vec_len, arma::fill::zeros);
-    arma::cx_vec vec_c_2(vec_len, arma::fill::zeros);
+    arma::cx_fvec vec_a_1_1(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_1_2(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_2_1(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_2_2(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_b_1(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_b_2(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_c_1(vec_len, arma::fill::zeros);
+    arma::cx_fvec vec_c_2(vec_len, arma::fill::zeros);
 
     tsc_start = GetTime::Rdtsc();
     vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
     vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
     tsc_end = GetTime::Rdtsc();
   } else if (dim == 4) {
-    arma::cx_vec vec_a_1_1(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_1_2(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_1_3(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_1_4(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_2_1(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_2_2(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_2_3(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_2_4(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_3_1(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_3_2(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_3_3(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_3_4(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_4_1(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_4_2(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_4_3(vec_len, arma::fill::randu);
-    arma::cx_vec vec_a_4_4(vec_len, arma::fill::randu);
-    arma::cx_vec vec_b_1(vec_len, arma::fill::randu);
-    arma::cx_vec vec_b_2(vec_len, arma::fill::randu);
-    arma::cx_vec vec_b_3(vec_len, arma::fill::randu);
-    arma::cx_vec vec_b_4(vec_len, arma::fill::randu);
-    arma::cx_vec vec_c_1(vec_len, arma::fill::zeros);
-    arma::cx_vec vec_c_2(vec_len, arma::fill::zeros);
-    arma::cx_vec vec_c_3(vec_len, arma::fill::zeros);
-    arma::cx_vec vec_c_4(vec_len, arma::fill::zeros);
+    arma::cx_fvec vec_a_1_1(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_1_2(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_1_3(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_1_4(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_2_1(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_2_2(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_2_3(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_2_4(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_3_1(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_3_2(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_3_3(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_3_4(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_4_1(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_4_2(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_4_3(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_a_4_4(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_b_1(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_b_2(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_b_3(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_b_4(vec_len, arma::fill::randu);
+    arma::cx_fvec vec_c_1(vec_len, arma::fill::zeros);
+    arma::cx_fvec vec_c_2(vec_len, arma::fill::zeros);
+    arma::cx_fvec vec_c_3(vec_len, arma::fill::zeros);
+    arma::cx_fvec vec_c_4(vec_len, arma::fill::zeros);
 
     tsc_start = GetTime::Rdtsc();
     vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2 +
@@ -133,9 +134,9 @@ double time_batch_mm_arma_decomp_vec_from_cube(size_t vec_len, int dim,
   size_t tsc_start, tsc_end;
   double duration_ms;
 
-  arma::cx_cube cub_a(dim, dim, vec_len, arma::fill::randu);
-  arma::cx_cube cub_b(dim, 1, vec_len, arma::fill::randu);
-  arma::cx_cube cub_c(dim, 1, vec_len, arma::fill::zeros);
+  arma::cx_fcube cub_a(dim, dim, vec_len, arma::fill::randu);
+  arma::cx_fcube cub_b(dim, 1, vec_len, arma::fill::randu);
+  arma::cx_fcube cub_c(dim, 1, vec_len, arma::fill::zeros);
 
   if (dim == 2) {
     tsc_start = GetTime::Rdtsc();
@@ -348,15 +349,227 @@ double time_batch_mm_mkl_cblas_cgemm_batch(size_t vec_len, int dim,
   return duration_ms;
 }
 
+#ifdef __AVX512F__
+/* 
+ * Test 2x2xN cube slice-wise multiplication with 2x1xN matrix with AVX512
+ * (clbas interface with batch matrix multiplication).
+ */
+double time_batch_mm_avx512(size_t vec_len, int dim, double freq_ghz) {
+  size_t tsc_start, tsc_end;
+  double duration_ms;
+
+  RtAssert(dim == 2, "dim must be 2!");
+
+  // I/O buffers
+  arma::cx_fcube cub_a(dim, dim, vec_len, arma::fill::randu);
+  arma::cx_fcube cub_b(dim, 1, vec_len, arma::fill::randu);
+  arma::cx_fcube cub_c(dim, 1, vec_len, arma::fill::zeros);
+
+  // Prepare operands
+  arma::cx_frowvec vec_a_1_1 = cub_a.tube(0, 0);
+  arma::cx_frowvec vec_a_1_2 = cub_a.tube(0, 1);
+  arma::cx_frowvec vec_a_2_1 = cub_a.tube(1, 0);
+  arma::cx_frowvec vec_a_2_2 = cub_a.tube(1, 1);
+  arma::cx_frowvec vec_b_1 = cub_b.tube(0, 0);
+  arma::cx_frowvec vec_b_2 = cub_b.tube(1, 0);
+  arma::cx_frowvec vec_c_1 = cub_c.tube(0, 0);
+  arma::cx_frowvec vec_c_2 = cub_c.tube(1, 0);
+
+  const complex_float* ptr_a_1_1 =
+    reinterpret_cast<complex_float*>(vec_a_1_1.memptr());
+  const complex_float* ptr_a_1_2 =
+    reinterpret_cast<complex_float*>(vec_a_1_2.memptr());
+  const complex_float* ptr_a_2_1 =
+    reinterpret_cast<complex_float*>(vec_a_2_1.memptr());
+  const complex_float* ptr_a_2_2 =
+    reinterpret_cast<complex_float*>(vec_a_2_2.memptr());
+  const complex_float* ptr_b_1 =
+    reinterpret_cast<complex_float*>(vec_b_1.memptr());
+  const complex_float* ptr_b_2 =
+    reinterpret_cast<complex_float*>(vec_b_2.memptr());
+  complex_float* ptr_c_1 =
+    reinterpret_cast<complex_float*>(vec_c_1.memptr());
+  complex_float* ptr_c_2 =
+    reinterpret_cast<complex_float*>(vec_c_2.memptr());
+
+  // Creates aligned memory spaces. If we use _mm512_load_ps(), we will need the
+  // memory space to be aligned to 64 bytes. If we use _mm512_loadu_ps(), we
+  // don't need the memory space to be aligned. The profiling results show that
+  // _mm512_load_ps() and _mm512_loadu_ps() have similar performance (9 ms vs
+  // 10 ms).
+  // The current code should run in ~1.5 ms. A hypothesis is that the initial
+  // random number impacts the computation speed.
+  // complex_float* buf_a_1_1 =
+  //   static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //     Agora_memory::Alignment_t::kAlign64,
+  //     vec_len * sizeof(complex_float)));
+  // complex_float* buf_a_1_2 =
+  //   static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //     Agora_memory::Alignment_t::kAlign64,
+  //     vec_len * sizeof(complex_float)));
+  // complex_float* buf_a_2_1 =
+  //   static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //     Agora_memory::Alignment_t::kAlign64,
+  //     vec_len * sizeof(complex_float)));
+  // complex_float* buf_a_2_2 =
+  //   static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //     Agora_memory::Alignment_t::kAlign64,
+  //     vec_len * sizeof(complex_float)));
+  // complex_float* buf_b_1 =
+  //   static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //     Agora_memory::Alignment_t::kAlign64,
+  //     vec_len * sizeof(complex_float)));
+  // complex_float* buf_b_2 =
+  //   static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //     Agora_memory::Alignment_t::kAlign64,
+  //     vec_len * sizeof(complex_float)));
+  // complex_float* buf_c_1 =
+  //   static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //     Agora_memory::Alignment_t::kAlign64,
+  //     vec_len * sizeof(complex_float)));
+  // complex_float* buf_c_2 =
+  //   static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //     Agora_memory::Alignment_t::kAlign64,
+  //     vec_len * sizeof(complex_float)));
+
+  // const complex_float* ptr_a_1_1 = reinterpret_cast<complex_float*>(buf_a_1_1);
+  // const complex_float* ptr_a_1_2 = reinterpret_cast<complex_float*>(buf_a_1_2);
+  // const complex_float* ptr_a_2_1 = reinterpret_cast<complex_float*>(buf_a_2_1);
+  // const complex_float* ptr_a_2_2 = reinterpret_cast<complex_float*>(buf_a_2_2);
+  // const complex_float* ptr_b_1 = reinterpret_cast<complex_float*>(buf_b_1);
+  // const complex_float* ptr_b_2 = reinterpret_cast<complex_float*>(buf_b_2);
+  // complex_float* ptr_c_1 = reinterpret_cast<complex_float*>(buf_c_1);
+  // complex_float* ptr_c_2 = reinterpret_cast<complex_float*>(buf_c_2);
+
+  tsc_start = GetTime::Rdtsc();
+  // Each AVX512 register can hold 
+  //   16 floats = 8 complex floats = 1 kSCsPerCacheline
+  for (size_t sc_idx = 0; sc_idx < vec_len; sc_idx += kSCsPerCacheline) {
+    // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
+    // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
+    __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+    __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+    __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+    __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+    __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
+    __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
+    __m512 temp_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+    __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+    __m512 c_1 = _mm512_add_ps(temp_1, temp_2);
+    temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+    temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+    __m512 c_2 = _mm512_add_ps(temp_1, temp_2);
+    _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+    _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
+  }
+  tsc_end = GetTime::Rdtsc();
+
+  cub_c.tube(0, 0) = vec_c_1;
+  cub_c.tube(1, 0) = vec_c_2;
+
+  duration_ms = GetTime::CyclesToMs(tsc_end - tsc_start, freq_ghz);
+  // printf("Time measured = %.2f ms\n", duration_ms);
+  return duration_ms;
+}
+
+#endif
+
+/* 
+ * Fall back function for avx512
+ */
+double time_batch_mm_avx2(size_t vec_len, int dim, double freq_ghz) {
+  size_t tsc_start, tsc_end;
+  double duration_ms;
+
+  RtAssert(dim == 2, "dim must be 2!");
+
+  // I/O buffers
+  arma::cx_fcube cub_a(dim, dim, vec_len, arma::fill::randu);
+  arma::cx_fcube cub_b(dim, 1, vec_len, arma::fill::randu);
+  arma::cx_fcube cub_c(dim, 1, vec_len, arma::fill::zeros);
+
+  // Prepare operands
+  arma::cx_frowvec vec_a_1_1 = cub_a.tube(0, 0);
+  arma::cx_frowvec vec_a_1_2 = cub_a.tube(0, 1);
+  arma::cx_frowvec vec_a_2_1 = cub_a.tube(1, 0);
+  arma::cx_frowvec vec_a_2_2 = cub_a.tube(1, 1);
+  arma::cx_frowvec vec_b_1 = cub_b.tube(0, 0);
+  arma::cx_frowvec vec_b_2 = cub_b.tube(1, 0);
+  arma::cx_frowvec vec_c_1 = cub_c.tube(0, 0);
+  arma::cx_frowvec vec_c_2 = cub_c.tube(1, 0);
+
+  const float* ptr_a_1_1 =
+    reinterpret_cast<float*>(vec_a_1_1.memptr());
+  const float* ptr_a_1_2 =
+    reinterpret_cast<float*>(vec_a_1_2.memptr());
+  const float* ptr_a_2_1 =
+    reinterpret_cast<float*>(vec_a_2_1.memptr());
+  const float* ptr_a_2_2 =
+    reinterpret_cast<float*>(vec_a_2_2.memptr());
+  const float* ptr_b_1 =
+    reinterpret_cast<float*>(vec_b_1.memptr());
+  const float* ptr_b_2 =
+    reinterpret_cast<float*>(vec_b_2.memptr());
+  float* ptr_c_1 =
+    reinterpret_cast<float*>(vec_c_1.memptr());
+  float* ptr_c_2 =
+    reinterpret_cast<float*>(vec_c_2.memptr());
+
+  tsc_start = GetTime::Rdtsc();
+  // Each AVX512 register can hold 
+  //   16 floats = 8 complex floats = 1 kSCsPerCacheline
+  size_t half_kSCsPerCacheline = kSCsPerCacheline / 2;
+  for (size_t sc_idx = 0; sc_idx < vec_len; sc_idx += kSCsPerCacheline) {
+    // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
+    // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
+    __m256 a_1_1 = _mm256_loadu_ps(ptr_a_1_1+sc_idx);
+    __m256 a_1_2 = _mm256_loadu_ps(ptr_a_1_2+sc_idx);
+    __m256 a_2_1 = _mm256_loadu_ps(ptr_a_2_1+sc_idx);
+    __m256 a_2_2 = _mm256_loadu_ps(ptr_a_2_2+sc_idx);
+    __m256 b_1 = _mm256_loadu_ps(ptr_b_1+sc_idx);
+    __m256 b_2 = _mm256_loadu_ps(ptr_b_2+sc_idx);
+    __m256 temp_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
+    __m256 temp_2 = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
+    __m256 c_1 = _mm256_add_ps(temp_1, temp_2);
+    temp_1 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
+    temp_2 = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
+    __m256 c_2 = _mm256_add_ps(temp_1, temp_2);
+    _mm256_storeu_ps(ptr_c_1+sc_idx, c_1);
+    _mm256_storeu_ps(ptr_c_2+sc_idx, c_2);
+
+    a_1_1 = _mm256_loadu_ps(ptr_a_1_1+sc_idx+half_kSCsPerCacheline);
+    a_1_2 = _mm256_loadu_ps(ptr_a_1_2+sc_idx+half_kSCsPerCacheline);
+    a_2_1 = _mm256_loadu_ps(ptr_a_2_1+sc_idx+half_kSCsPerCacheline);
+    a_2_2 = _mm256_loadu_ps(ptr_a_2_2+sc_idx+half_kSCsPerCacheline);
+    b_1 = _mm256_loadu_ps(ptr_b_1+sc_idx+half_kSCsPerCacheline);
+    b_2 = _mm256_loadu_ps(ptr_b_2+sc_idx+half_kSCsPerCacheline);
+    temp_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
+    temp_2 = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
+    c_1 = _mm256_add_ps(temp_1, temp_2);
+    temp_1 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
+    temp_2 = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
+    c_2 = _mm256_add_ps(temp_1, temp_2);
+    _mm256_storeu_ps(ptr_c_1+sc_idx+half_kSCsPerCacheline, c_1);
+    _mm256_storeu_ps(ptr_c_2+sc_idx+half_kSCsPerCacheline, c_2);
+  }
+  tsc_end = GetTime::Rdtsc();
+
+  duration_ms = GetTime::CyclesToMs(tsc_end - tsc_start, freq_ghz);
+  // printf("Time measured = %.2f ms\n", duration_ms);
+  return duration_ms;
+}
+
 TEST(TestBatchMatMult, TimingAnalysis) {
   int iter = 1000;
   size_t vec_len = 768; // number of subcarriers in this case
-  int dim = 4;
+  int dim = 2;
   double time_ms_loop = 0.0;
   double time_ms_vectors = 0.0;
   double time_ms_vectors_extract = 0.0;
   double time_ms_MKL = 0.0;
   double time_ms_MKL_batch = 0.0;
+  double time_ms_avx512 = 0.0;
+  double time_ms_avx2 = 0.0;
   double freq_ghz = GetTime::MeasureRdtscFreq();
 
   printf("Running %d times of %ld (%dx%d) x (%dx1) matrix mult...\n",
@@ -373,6 +586,12 @@ TEST(TestBatchMatMult, TimingAnalysis) {
       time_batch_mm_mkl_cblas_cgemm_loop(vec_len, dim, freq_ghz);
     time_ms_MKL_batch +=
       time_batch_mm_mkl_cblas_cgemm_batch(vec_len, dim, freq_ghz);
+#ifdef __AVX512F__
+    time_ms_avx512 +=
+      time_batch_mm_avx512(vec_len, dim, freq_ghz);
+#endif
+    time_ms_avx2 +=
+      time_batch_mm_avx2(vec_len, dim, freq_ghz);
   }
   printf("[arma] Time for %dx loops of slices = %.2f ms\n", iter, time_ms_loop);
   printf("[arma] Time for %dx vector decomposition (vec) = %.2f ms\n",
@@ -383,6 +602,12 @@ TEST(TestBatchMatMult, TimingAnalysis) {
          iter, time_ms_MKL);
   printf("[mkl] Time for %dx cblas_cgemm_batch = %.2f ms\n",
          iter, time_ms_MKL_batch);
+#ifdef __AVX512F__
+  printf("[avx512] Time for %dx avx512 = %.2f ms\n",
+         iter, time_ms_avx512);
+#endif
+  printf("[avx2] Time for %dx avx2 = %.2f ms\n",
+         iter, time_ms_avx2);
 }
 
 int main(int argc, char** argv) {

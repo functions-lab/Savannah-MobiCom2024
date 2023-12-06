@@ -4,6 +4,7 @@
 #include "config.h"
 #include "dodemul.h"
 #include "gettime.h"
+#include "comms-lib.h"
 
 // set static constexpr bool kExportConstellation = true; at symbol.h to enable
 // this unit test. otherwise, the correctness check is not reliable.
@@ -1042,6 +1043,58 @@ void equal_vec_2x2_complex(
   arma::cx_fcube cub_equaled(equal_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
   // cub_equaled.print("cub_equaled");
 
+#ifdef __AVX512F__
+
+  // Prepare operands
+  arma::cx_frowvec vec_a_1_1 = cub_ul_beam.tube(0, 0);
+  arma::cx_frowvec vec_a_1_2 = cub_ul_beam.tube(0, 1);
+  arma::cx_frowvec vec_a_2_1 = cub_ul_beam.tube(1, 0);
+  arma::cx_frowvec vec_a_2_2 = cub_ul_beam.tube(1, 1);
+  arma::cx_frowvec vec_b_1 = cub_data.tube(0, 0);
+  arma::cx_frowvec vec_b_2 = cub_data.tube(1, 0);
+  arma::cx_frowvec vec_c_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_c_2 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+
+  const complex_float* ptr_a_1_1 =
+    reinterpret_cast<complex_float*>(vec_a_1_1.memptr());
+  const complex_float* ptr_a_1_2 =
+    reinterpret_cast<complex_float*>(vec_a_1_2.memptr());
+  const complex_float* ptr_a_2_1 =
+    reinterpret_cast<complex_float*>(vec_a_2_1.memptr());
+  const complex_float* ptr_a_2_2 =
+    reinterpret_cast<complex_float*>(vec_a_2_2.memptr());
+  const complex_float* ptr_b_1 =
+    reinterpret_cast<complex_float*>(vec_b_1.memptr());
+  const complex_float* ptr_b_2 =
+    reinterpret_cast<complex_float*>(vec_b_2.memptr());
+  complex_float* ptr_c_1 =
+    reinterpret_cast<complex_float*>(vec_c_1.memptr());
+  complex_float* ptr_c_2 =
+    reinterpret_cast<complex_float*>(vec_c_2.memptr());
+
+  for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
+    // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
+    // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
+    __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+    __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+    __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+    __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+    __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
+    __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
+    __m512 temp_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+    __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+    __m512 c_1 = _mm512_add_ps(temp_1, temp_2);
+    temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+    temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+    __m512 c_2 = _mm512_add_ps(temp_1, temp_2);
+    _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+    _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
+  }
+
+  cub_equaled.tube(0, 0) = vec_c_1;
+  cub_equaled.tube(1, 0) = vec_c_2;
+#else
+
   // for (size_t i = 0; i < max_sc_ite; ++i) {
   //   cub_equaled.slice(i) = cub_ul_beam.slice(i) * cub_data.slice(i);
   // }
@@ -1051,6 +1104,8 @@ void equal_vec_2x2_complex(
   cub_equaled.tube(1, 0) =
     cub_ul_beam.tube(1, 0) % cub_data.tube(0, 0) +
     cub_ul_beam.tube(1, 1) % cub_data.tube(1, 0);
+
+#endif
 
   // Step 2: Phase shift calibration
 
@@ -1377,12 +1432,12 @@ void equal_test(
   // equal_vec_1x1_real(cfg_, data_buffer_, equal_buffer_,
   //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
   //   base_sc_id_);
-  // equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
-  //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-  //   base_sc_id_);
-  equal_vec_4x4_complex(cfg_, data_buffer_, equal_buffer_,
+  equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
     ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
     base_sc_id_);
+  // equal_vec_4x4_complex(cfg_, data_buffer_, equal_buffer_,
+  //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+  //   base_sc_id_);
 }
 
 /******************************************************************************/
