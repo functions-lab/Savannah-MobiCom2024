@@ -1090,19 +1090,21 @@ void equal_vec_2x2_complex(
   for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
     // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
     // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
-    __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
-    __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
-    __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
-    __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
     __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
     __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
-    __m512 temp_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
-    __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
-    __m512 c_1 = _mm512_add_ps(temp_1, temp_2);
-    temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
-    temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
-    __m512 c_2 = _mm512_add_ps(temp_1, temp_2);
+
+    __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+    __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+    __m512 c_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+    __m512 temp = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+    c_1 = _mm512_add_ps(c_1, temp);
     _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+
+    __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+    __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+    __m512 c_2 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+    temp = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+    c_2 = _mm512_add_ps(c_2, temp);
     _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
   }
 
@@ -1576,18 +1578,31 @@ void equal_test(
     Table<complex_float>& ue_spec_pilot_buffer_,
     PtrGrid<kFrameWnd, kMaxDataSCs, complex_float>& ul_beam_matrices_,
     size_t frame_id_, size_t symbol_id_, size_t base_sc_id_) {
-  // equal_vec_1x1_complex(cfg_, data_buffer_, equal_buffer_,
-  //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-  //   base_sc_id_);
-  // equal_vec_1x1_real(cfg_, data_buffer_, equal_buffer_,
-  //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-  //   base_sc_id_);
-  // equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
-  //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-  //   base_sc_id_);
-  equal_vec_4x4_complex(cfg_, data_buffer_, equal_buffer_,
-    ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-    base_sc_id_);
+
+  RtAssert(cfg_->BsAntNum() == cfg_->UeAntNum(),
+           "Only support square MIMO matrix!");
+  
+  if (cfg_->BsAntNum() == 1 && cfg_->UeAntNum() == 1) {
+    equal_vec_1x1_complex(cfg_, data_buffer_, equal_buffer_,
+      ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+      base_sc_id_);
+    // equal_vec_1x1_real(cfg_, data_buffer_, equal_buffer_,
+    //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+    //   base_sc_id_);
+  }
+
+  if (cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2) {
+    equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
+      ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+      base_sc_id_);
+  }
+
+  if (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4) {
+    equal_vec_4x4_complex(cfg_, data_buffer_, equal_buffer_,
+      ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+      base_sc_id_);
+  }
+
 }
 
 /******************************************************************************/

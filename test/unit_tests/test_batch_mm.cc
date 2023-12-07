@@ -22,7 +22,7 @@ double time_batch_mm_arma_loop_slices(size_t vec_len, int dim,
                                             double freq_ghz) {
   size_t tsc_start, tsc_end;
   double duration_ms;
-  
+
   arma::cx_fcube cub_a(dim, dim, vec_len, arma::fill::randu);
   arma::cx_fcube cub_b(dim, 1, vec_len, arma::fill::randu);
   arma::cx_fcube cub_c(dim, 1, vec_len, arma::fill::zeros);
@@ -47,7 +47,7 @@ double time_batch_mm_arma_loop_slices(size_t vec_len, int dim,
 /*
  * Transform 2x2xN cube to 4 1x1xN vectors, 2x1xN matrix to 2 1x1xN vectors, and
  * perform element-wise multiplication to simulate slice-wise multiplication.
- * 
+ *
  * OR
  * Transform 4x4xN cube to 16 1x1xN vectors, 4x1xN matrix to 4 1x1xN vectors,
  * and perform element-wise multiplication to simulate slice-wise
@@ -121,9 +121,9 @@ double time_batch_mm_arma_decomp_vec(size_t vec_len,
 /*
  * Transform 2x2xN cube to 4 1x1xN vectors, 2x1xN matrix to 2 1x1xN vectors, and
  * perform element-wise multiplication to simulate slice-wise multiplication.
- * 
+ *
  * This version extracts the vectors from the cube.
- * 
+ *
  * OR
  * Transform 4x4xN cube to 16 1x1xN vectors, 4x1xN matrix to 4 1x1xN vectors,
  * and perform element-wise multiplication to simulate slice-wise
@@ -180,7 +180,7 @@ double time_batch_mm_arma_decomp_vec_from_cube(size_t vec_len, int dim,
 
     // TODO: idea is interesting, but the syntax is not correct
     // arma::cx_mat temp_c_mat(dim, vec_len, arma::fill::zeros);
-  
+
     // temp_c_mat += cub_a.col_as_mat(0).each_row() % cub_b.row_as_mat(0);
     // temp_c_mat += cub_a.col_as_mat(1).each_row() % cub_b.row_as_mat(1);
     // temp_c_mat += cub_a.col_as_mat(2).each_row() % cub_b.row_as_mat(2);
@@ -266,7 +266,7 @@ double time_batch_mm_mkl_cblas_cgemm_loop(size_t vec_len, int dim,
 /*
  * Test 2x2xN cube slice-wise multiplication with 2x1xN matrix with MKL
  * (clbas interface).
- * 
+ *
  * OR
  * Test 4x4xN cube slice-wise multiplication with 4x1xN matrix with MKL
  * (clbas interface).
@@ -310,7 +310,7 @@ double time_batch_mm_mkl_cblas_cgemm_batch(size_t vec_len, int dim,
   std::fill(N_Array, N_Array + vec_len, 1);
   std::fill(K_Array, K_Array + vec_len, dim);
   std::fill(Trans_Array, Trans_Array + vec_len, CblasNoTrans);
-  
+
   MKL_INT alpha = 1;
   MKL_INT beta = 0;
   MKL_INT group_size = vec_len;
@@ -350,7 +350,7 @@ double time_batch_mm_mkl_cblas_cgemm_batch(size_t vec_len, int dim,
 }
 
 #ifdef __AVX512F__
-/* 
+/*
  * Test 2x2xN cube slice-wise multiplication with 2x1xN matrix with AVX512
  * (clbas interface with batch matrix multiplication).
  */
@@ -449,26 +449,28 @@ double time_batch_mm_avx512(size_t vec_len, int dim, double freq_ghz) {
     for (size_t sc_idx = 0; sc_idx < vec_len; sc_idx += kSCsPerCacheline) {
       // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
       // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
-      __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
-      __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
-      __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
-      __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
       __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
       __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
-      __m512 temp_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
-      __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
-      __m512 c_1 = _mm512_add_ps(temp_1, temp_2);
-      temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
-      temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
-      __m512 c_2 = _mm512_add_ps(temp_1, temp_2);
+
+      __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+      __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+      __m512 c_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+      __m512 temp = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+      c_1 = _mm512_add_ps(c_1, temp);
       _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+
+      __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+      __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+      __m512 c_2 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+      temp = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+      c_2 = _mm512_add_ps(c_2, temp);
       _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
     }
     tsc_end = GetTime::Rdtsc();
 
     cub_c.tube(0, 0) = vec_c_1;
     cub_c.tube(1, 0) = vec_c_2;
-  
+
   } else if (dim == 4) {
 
     // Prepare operands
@@ -550,57 +552,61 @@ double time_batch_mm_avx512(size_t vec_len, int dim, double freq_ghz) {
     // Each AVX512 register can hold 
     //   16 floats = 8 complex floats = 1 kSCsPerCacheline
     for (size_t sc_idx = 0; sc_idx < vec_len; sc_idx += kSCsPerCacheline) {
-      __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
-      __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
-      __m512 a_1_3 = _mm512_loadu_ps(ptr_a_1_3+sc_idx);
-      __m512 a_1_4 = _mm512_loadu_ps(ptr_a_1_4+sc_idx);
-      __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
-      __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
-      __m512 a_2_3 = _mm512_loadu_ps(ptr_a_2_3+sc_idx);
-      __m512 a_2_4 = _mm512_loadu_ps(ptr_a_2_4+sc_idx);
-      __m512 a_3_1 = _mm512_loadu_ps(ptr_a_3_1+sc_idx);
-      __m512 a_3_2 = _mm512_loadu_ps(ptr_a_3_2+sc_idx);
-      __m512 a_3_3 = _mm512_loadu_ps(ptr_a_3_3+sc_idx);
-      __m512 a_3_4 = _mm512_loadu_ps(ptr_a_3_4+sc_idx);
-      __m512 a_4_1 = _mm512_loadu_ps(ptr_a_4_1+sc_idx);
-      __m512 a_4_2 = _mm512_loadu_ps(ptr_a_4_2+sc_idx);
-      __m512 a_4_3 = _mm512_loadu_ps(ptr_a_4_3+sc_idx);
-      __m512 a_4_4 = _mm512_loadu_ps(ptr_a_4_4+sc_idx);
       __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
       __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
       __m512 b_3 = _mm512_loadu_ps(ptr_b_3+sc_idx);
       __m512 b_4 = _mm512_loadu_ps(ptr_b_4+sc_idx);
-      __m512 temp_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
-      __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
-      __m512 temp_3 = CommsLib::M512ComplexCf32Mult(a_1_3, b_3, false);
-      __m512 temp_4 = CommsLib::M512ComplexCf32Mult(a_1_4, b_4, false);
-      temp_1 = _mm512_add_ps(temp_1, temp_2);
-      temp_3 = _mm512_add_ps(temp_3, temp_4);
-      __m512 c_1 = _mm512_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
-      temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
-      temp_3 = CommsLib::M512ComplexCf32Mult(a_2_3, b_3, false);
-      temp_4 = CommsLib::M512ComplexCf32Mult(a_2_4, b_4, false);
-      temp_1 = _mm512_add_ps(temp_1, temp_2);
-      temp_3 = _mm512_add_ps(temp_3, temp_4);
-      __m512 c_2 = _mm512_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M512ComplexCf32Mult(a_3_1, b_1, false);
-      temp_2 = CommsLib::M512ComplexCf32Mult(a_3_2, b_2, false);
-      temp_3 = CommsLib::M512ComplexCf32Mult(a_3_3, b_3, false);
-      temp_4 = CommsLib::M512ComplexCf32Mult(a_3_4, b_4, false);
-      temp_1 = _mm512_add_ps(temp_1, temp_2);
-      temp_3 = _mm512_add_ps(temp_3, temp_4);
-      __m512 c_3 = _mm512_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M512ComplexCf32Mult(a_4_1, b_1, false);
-      temp_2 = CommsLib::M512ComplexCf32Mult(a_4_2, b_2, false);
-      temp_3 = CommsLib::M512ComplexCf32Mult(a_4_3, b_3, false);
-      temp_4 = CommsLib::M512ComplexCf32Mult(a_4_4, b_4, false);
-      temp_1 = _mm512_add_ps(temp_1, temp_2);
-      temp_3 = _mm512_add_ps(temp_3, temp_4);
-      __m512 c_4 = _mm512_add_ps(temp_1, temp_3);
+
+      __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+      __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+      __m512 a_1_3 = _mm512_loadu_ps(ptr_a_1_3+sc_idx);
+      __m512 a_1_4 = _mm512_loadu_ps(ptr_a_1_4+sc_idx);
+      __m512 c_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+      __m512 temp = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+      c_1 = _mm512_add_ps(c_1, temp);
+      temp = CommsLib::M512ComplexCf32Mult(a_1_3, b_3, false);
+      c_1 = _mm512_add_ps(c_1, temp);
+      temp = CommsLib::M512ComplexCf32Mult(a_1_4, b_4, false);
+      c_1 = _mm512_add_ps(c_1, temp);
       _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+
+      __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+      __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+      __m512 a_2_3 = _mm512_loadu_ps(ptr_a_2_3+sc_idx);
+      __m512 a_2_4 = _mm512_loadu_ps(ptr_a_2_4+sc_idx);
+      __m512 c_2 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+      temp = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+      c_2 = _mm512_add_ps(c_2, temp);
+      temp = CommsLib::M512ComplexCf32Mult(a_2_3, b_3, false);
+      c_2 = _mm512_add_ps(c_2, temp);
+      temp = CommsLib::M512ComplexCf32Mult(a_2_4, b_4, false);
+      c_2 = _mm512_add_ps(c_2, temp);
       _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
+
+      __m512 a_3_1 = _mm512_loadu_ps(ptr_a_3_1+sc_idx);
+      __m512 a_3_2 = _mm512_loadu_ps(ptr_a_3_2+sc_idx);
+      __m512 a_3_3 = _mm512_loadu_ps(ptr_a_3_3+sc_idx);
+      __m512 a_3_4 = _mm512_loadu_ps(ptr_a_3_4+sc_idx);
+      __m512 c_3 = CommsLib::M512ComplexCf32Mult(a_3_1, b_1, false);
+      temp = CommsLib::M512ComplexCf32Mult(a_3_2, b_2, false);
+      c_3 = _mm512_add_ps(c_3, temp);
+      temp = CommsLib::M512ComplexCf32Mult(a_3_3, b_3, false);
+      c_3 = _mm512_add_ps(c_3, temp);
+      temp = CommsLib::M512ComplexCf32Mult(a_3_4, b_4, false);
+      c_3 = _mm512_add_ps(c_3, temp);
       _mm512_storeu_ps(ptr_c_3+sc_idx, c_3);
+
+      __m512 a_4_1 = _mm512_loadu_ps(ptr_a_4_1+sc_idx);
+      __m512 a_4_2 = _mm512_loadu_ps(ptr_a_4_2+sc_idx);
+      __m512 a_4_3 = _mm512_loadu_ps(ptr_a_4_3+sc_idx);
+      __m512 a_4_4 = _mm512_loadu_ps(ptr_a_4_4+sc_idx);
+      __m512 c_4 = CommsLib::M512ComplexCf32Mult(a_4_1, b_1, false);
+      temp = CommsLib::M512ComplexCf32Mult(a_4_2, b_2, false);
+      c_4 = _mm512_add_ps(c_4, temp);
+      temp = CommsLib::M512ComplexCf32Mult(a_4_3, b_3, false);
+      c_4 = _mm512_add_ps(c_4, temp);
+      temp = CommsLib::M512ComplexCf32Mult(a_4_4, b_4, false);
+      c_4 = _mm512_add_ps(c_4, temp);
       _mm512_storeu_ps(ptr_c_4+sc_idx, c_4);
     }
     tsc_end = GetTime::Rdtsc();
@@ -618,7 +624,7 @@ double time_batch_mm_avx512(size_t vec_len, int dim, double freq_ghz) {
 
 #endif
 
-/* 
+/*
  * Fall back function for avx512
  */
 double time_batch_mm_avx2(size_t vec_len, int dim, double freq_ghz) {
@@ -660,34 +666,40 @@ double time_batch_mm_avx2(size_t vec_len, int dim, double freq_ghz) {
     for (size_t sc_idx = 0; sc_idx < vec_len; sc_idx += kSCsPerCacheline) {
       // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
       // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
-      __m256 a_1_1 = _mm256_loadu_ps(ptr_a_1_1+sc_idx);
-      __m256 a_1_2 = _mm256_loadu_ps(ptr_a_1_2+sc_idx);
-      __m256 a_2_1 = _mm256_loadu_ps(ptr_a_2_1+sc_idx);
-      __m256 a_2_2 = _mm256_loadu_ps(ptr_a_2_2+sc_idx);
+
       __m256 b_1 = _mm256_loadu_ps(ptr_b_1+sc_idx);
       __m256 b_2 = _mm256_loadu_ps(ptr_b_2+sc_idx);
-      __m256 temp_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
-      __m256 temp_2 = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
-      __m256 c_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
-      __m256 c_2 = _mm256_add_ps(temp_1, temp_2);
+
+      __m256 a_1_1 = _mm256_loadu_ps(ptr_a_1_1+sc_idx);
+      __m256 a_1_2 = _mm256_loadu_ps(ptr_a_1_2+sc_idx);
+      __m256 c_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
+      __m256 temp = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
+      c_1 = _mm256_add_ps(c_1, temp);
       _mm256_storeu_ps(ptr_c_1+sc_idx, c_1);
+
+      __m256 a_2_1 = _mm256_loadu_ps(ptr_a_2_1+sc_idx);
+      __m256 a_2_2 = _mm256_loadu_ps(ptr_a_2_2+sc_idx);
+      __m256 c_2 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
+      c_2 = _mm256_add_ps(c_2, temp);
       _mm256_storeu_ps(ptr_c_2+sc_idx, c_2);
+
+
+      b_1 = _mm256_loadu_ps(ptr_b_1+sc_idx+half_kSCsPerCacheline);
+      b_2 = _mm256_loadu_ps(ptr_b_2+sc_idx+half_kSCsPerCacheline);
 
       a_1_1 = _mm256_loadu_ps(ptr_a_1_1+sc_idx+half_kSCsPerCacheline);
       a_1_2 = _mm256_loadu_ps(ptr_a_1_2+sc_idx+half_kSCsPerCacheline);
+      c_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
+      c_1 = _mm256_add_ps(c_1, temp);
+      _mm256_storeu_ps(ptr_c_1+sc_idx+half_kSCsPerCacheline, c_1);
+
       a_2_1 = _mm256_loadu_ps(ptr_a_2_1+sc_idx+half_kSCsPerCacheline);
       a_2_2 = _mm256_loadu_ps(ptr_a_2_2+sc_idx+half_kSCsPerCacheline);
-      b_1 = _mm256_loadu_ps(ptr_b_1+sc_idx+half_kSCsPerCacheline);
-      b_2 = _mm256_loadu_ps(ptr_b_2+sc_idx+half_kSCsPerCacheline);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
-      c_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
-      c_2 = _mm256_add_ps(temp_1, temp_2);
-      _mm256_storeu_ps(ptr_c_1+sc_idx+half_kSCsPerCacheline, c_1);
+      c_2 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
+      c_2 = _mm256_add_ps(c_2, temp);
       _mm256_storeu_ps(ptr_c_2+sc_idx+half_kSCsPerCacheline, c_2);
     }
     tsc_end = GetTime::Rdtsc();
@@ -750,110 +762,119 @@ double time_batch_mm_avx2(size_t vec_len, int dim, double freq_ghz) {
     //   16 floats = 8 complex floats = 1 kSCsPerCacheline
     size_t half_kSCsPerCacheline = kSCsPerCacheline / 2;
     for (size_t sc_idx = 0; sc_idx < vec_len; sc_idx += kSCsPerCacheline) {
-      __m256 a_1_1 = _mm256_loadu_ps(ptr_a_1_1+sc_idx);
-      __m256 a_1_2 = _mm256_loadu_ps(ptr_a_1_2+sc_idx);
-      __m256 a_1_3 = _mm256_loadu_ps(ptr_a_1_3+sc_idx);
-      __m256 a_1_4 = _mm256_loadu_ps(ptr_a_1_4+sc_idx);
-      __m256 a_2_1 = _mm256_loadu_ps(ptr_a_2_1+sc_idx);
-      __m256 a_2_2 = _mm256_loadu_ps(ptr_a_2_2+sc_idx);
-      __m256 a_2_3 = _mm256_loadu_ps(ptr_a_2_3+sc_idx);
-      __m256 a_2_4 = _mm256_loadu_ps(ptr_a_2_4+sc_idx);
-      __m256 a_3_1 = _mm256_loadu_ps(ptr_a_3_1+sc_idx);
-      __m256 a_3_2 = _mm256_loadu_ps(ptr_a_3_2+sc_idx);
-      __m256 a_3_3 = _mm256_loadu_ps(ptr_a_3_3+sc_idx);
-      __m256 a_3_4 = _mm256_loadu_ps(ptr_a_3_4+sc_idx);
-      __m256 a_4_1 = _mm256_loadu_ps(ptr_a_4_1+sc_idx);
-      __m256 a_4_2 = _mm256_loadu_ps(ptr_a_4_2+sc_idx);
-      __m256 a_4_3 = _mm256_loadu_ps(ptr_a_4_3+sc_idx);
-      __m256 a_4_4 = _mm256_loadu_ps(ptr_a_4_4+sc_idx);
       __m256 b_1 = _mm256_loadu_ps(ptr_b_1+sc_idx);
       __m256 b_2 = _mm256_loadu_ps(ptr_b_2+sc_idx);
       __m256 b_3 = _mm256_loadu_ps(ptr_b_3+sc_idx);
       __m256 b_4 = _mm256_loadu_ps(ptr_b_4+sc_idx);
-      __m256 temp_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
-      __m256 temp_2 = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
-      __m256 temp_3 = CommsLib::M256ComplexCf32Mult(a_1_3, b_3, false);
-      __m256 temp_4 = CommsLib::M256ComplexCf32Mult(a_1_4, b_4, false);
-      temp_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_3 = _mm256_add_ps(temp_3, temp_4);
-      __m256 c_1 = _mm256_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
-      temp_3 = CommsLib::M256ComplexCf32Mult(a_2_3, b_3, false);
-      temp_4 = CommsLib::M256ComplexCf32Mult(a_2_4, b_4, false);
-      temp_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_3 = _mm256_add_ps(temp_3, temp_4);
-      __m256 c_2 = _mm256_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_3_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_3_2, b_2, false);
-      temp_3 = CommsLib::M256ComplexCf32Mult(a_3_3, b_3, false);
-      temp_4 = CommsLib::M256ComplexCf32Mult(a_3_4, b_4, false);
-      temp_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_3 = _mm256_add_ps(temp_3, temp_4);
-      __m256 c_3 = _mm256_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_4_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_4_2, b_2, false);
-      temp_3 = CommsLib::M256ComplexCf32Mult(a_4_3, b_3, false);
-      temp_4 = CommsLib::M256ComplexCf32Mult(a_4_4, b_4, false);
-      temp_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_3 = _mm256_add_ps(temp_3, temp_4);
-      __m256 c_4 = _mm256_add_ps(temp_1, temp_3);
+
+      __m256 a_1_1 = _mm256_loadu_ps(ptr_a_1_1+sc_idx);
+      __m256 a_1_2 = _mm256_loadu_ps(ptr_a_1_2+sc_idx);
+      __m256 a_1_3 = _mm256_loadu_ps(ptr_a_1_3+sc_idx);
+      __m256 a_1_4 = _mm256_loadu_ps(ptr_a_1_4+sc_idx);
+      __m256 c_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
+      __m256 temp = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
+      c_1 = _mm256_add_ps(c_1, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_1_3, b_3, false);
+      c_1 = _mm256_add_ps(c_1, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_1_4, b_4, false);
+      c_1 = _mm256_add_ps(c_1, temp);
       _mm256_storeu_ps(ptr_c_1+sc_idx, c_1);
+
+      __m256 a_2_1 = _mm256_loadu_ps(ptr_a_2_1+sc_idx);
+      __m256 a_2_2 = _mm256_loadu_ps(ptr_a_2_2+sc_idx);
+      __m256 a_2_3 = _mm256_loadu_ps(ptr_a_2_3+sc_idx);
+      __m256 a_2_4 = _mm256_loadu_ps(ptr_a_2_4+sc_idx);
+      __m256 c_2 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
+      c_2 = _mm256_add_ps(c_2, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_2_3, b_3, false);
+      c_2 = _mm256_add_ps(c_2, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_2_4, b_4, false);
+      c_2 = _mm256_add_ps(c_2, temp);
       _mm256_storeu_ps(ptr_c_2+sc_idx, c_2);
+
+      __m256 a_3_1 = _mm256_loadu_ps(ptr_a_3_1+sc_idx);
+      __m256 a_3_2 = _mm256_loadu_ps(ptr_a_3_2+sc_idx);
+      __m256 a_3_3 = _mm256_loadu_ps(ptr_a_3_3+sc_idx);
+      __m256 a_3_4 = _mm256_loadu_ps(ptr_a_3_4+sc_idx);
+      __m256 c_3 = CommsLib::M256ComplexCf32Mult(a_3_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_3_2, b_2, false);
+      c_3 = _mm256_add_ps(c_3, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_3_3, b_3, false);
+      c_3 = _mm256_add_ps(c_3, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_3_4, b_4, false);
+      c_3 = _mm256_add_ps(c_3, temp);
       _mm256_storeu_ps(ptr_c_3+sc_idx, c_3);
+
+      __m256 a_4_1 = _mm256_loadu_ps(ptr_a_4_1+sc_idx);
+      __m256 a_4_2 = _mm256_loadu_ps(ptr_a_4_2+sc_idx);
+      __m256 a_4_3 = _mm256_loadu_ps(ptr_a_4_3+sc_idx);
+      __m256 a_4_4 = _mm256_loadu_ps(ptr_a_4_4+sc_idx);
+      __m256 c_4 = CommsLib::M256ComplexCf32Mult(a_4_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_4_2, b_2, false);
+      c_4 = _mm256_add_ps(c_4, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_4_3, b_3, false);
+      c_4 = _mm256_add_ps(c_4, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_4_4, b_4, false);
+      c_4 = _mm256_add_ps(c_4, temp);
       _mm256_storeu_ps(ptr_c_4+sc_idx, c_4);
+
+
+      b_1 = _mm256_loadu_ps(ptr_b_1+sc_idx+half_kSCsPerCacheline);
+      b_2 = _mm256_loadu_ps(ptr_b_2+sc_idx+half_kSCsPerCacheline);
+      b_3 = _mm256_loadu_ps(ptr_b_3+sc_idx+half_kSCsPerCacheline);
+      b_4 = _mm256_loadu_ps(ptr_b_4+sc_idx+half_kSCsPerCacheline);
 
       a_1_1 = _mm256_loadu_ps(ptr_a_1_1+sc_idx+half_kSCsPerCacheline);
       a_1_2 = _mm256_loadu_ps(ptr_a_1_2+sc_idx+half_kSCsPerCacheline);
       a_1_3 = _mm256_loadu_ps(ptr_a_1_3+sc_idx+half_kSCsPerCacheline);
       a_1_4 = _mm256_loadu_ps(ptr_a_1_4+sc_idx+half_kSCsPerCacheline);
+      c_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
+      c_1 = _mm256_add_ps(c_1, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_1_3, b_3, false);
+      c_1 = _mm256_add_ps(c_1, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_1_4, b_4, false);
+      c_1 = _mm256_add_ps(c_1, temp);
+      _mm256_storeu_ps(ptr_c_1+sc_idx+half_kSCsPerCacheline, c_1);
+
       a_2_1 = _mm256_loadu_ps(ptr_a_2_1+sc_idx+half_kSCsPerCacheline);
       a_2_2 = _mm256_loadu_ps(ptr_a_2_2+sc_idx+half_kSCsPerCacheline);
       a_2_3 = _mm256_loadu_ps(ptr_a_2_3+sc_idx+half_kSCsPerCacheline);
       a_2_4 = _mm256_loadu_ps(ptr_a_2_4+sc_idx+half_kSCsPerCacheline);
+      c_2 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
+      c_2 = _mm256_add_ps(c_2, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_2_3, b_3, false);
+      c_2 = _mm256_add_ps(c_2, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_2_4, b_4, false);
+      c_2 = _mm256_add_ps(c_2, temp);
+      _mm256_storeu_ps(ptr_c_2+sc_idx+half_kSCsPerCacheline, c_2);
+
       a_3_1 = _mm256_loadu_ps(ptr_a_3_1+sc_idx+half_kSCsPerCacheline);
       a_3_2 = _mm256_loadu_ps(ptr_a_3_2+sc_idx+half_kSCsPerCacheline);
       a_3_3 = _mm256_loadu_ps(ptr_a_3_3+sc_idx+half_kSCsPerCacheline);
       a_3_4 = _mm256_loadu_ps(ptr_a_3_4+sc_idx+half_kSCsPerCacheline);
+      c_3 = CommsLib::M256ComplexCf32Mult(a_3_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_3_2, b_2, false);
+      c_3 = _mm256_add_ps(c_3, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_3_3, b_3, false);
+      c_3 = _mm256_add_ps(c_3, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_3_4, b_4, false);
+      c_3 = _mm256_add_ps(c_3, temp);
+      _mm256_storeu_ps(ptr_c_3+sc_idx+half_kSCsPerCacheline, c_3);
+
       a_4_1 = _mm256_loadu_ps(ptr_a_4_1+sc_idx+half_kSCsPerCacheline);
       a_4_2 = _mm256_loadu_ps(ptr_a_4_2+sc_idx+half_kSCsPerCacheline);
       a_4_3 = _mm256_loadu_ps(ptr_a_4_3+sc_idx+half_kSCsPerCacheline);
       a_4_4 = _mm256_loadu_ps(ptr_a_4_4+sc_idx+half_kSCsPerCacheline);
-      b_1 = _mm256_loadu_ps(ptr_b_1+sc_idx+half_kSCsPerCacheline);
-      b_2 = _mm256_loadu_ps(ptr_b_2+sc_idx+half_kSCsPerCacheline);
-      b_3 = _mm256_loadu_ps(ptr_b_3+sc_idx+half_kSCsPerCacheline);
-      b_4 = _mm256_loadu_ps(ptr_b_4+sc_idx+half_kSCsPerCacheline);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_1_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_1_2, b_2, false);
-      temp_3 = CommsLib::M256ComplexCf32Mult(a_1_3, b_3, false);
-      temp_4 = CommsLib::M256ComplexCf32Mult(a_1_4, b_4, false);
-      temp_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_3 = _mm256_add_ps(temp_3, temp_4);
-      c_1 = _mm256_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_2_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_2_2, b_2, false);
-      temp_3 = CommsLib::M256ComplexCf32Mult(a_2_3, b_3, false);
-      temp_4 = CommsLib::M256ComplexCf32Mult(a_2_4, b_4, false);
-      temp_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_3 = _mm256_add_ps(temp_3, temp_4);
-      c_2 = _mm256_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_3_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_3_2, b_2, false);
-      temp_3 = CommsLib::M256ComplexCf32Mult(a_3_3, b_3, false);
-      temp_4 = CommsLib::M256ComplexCf32Mult(a_3_4, b_4, false);
-      temp_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_3 = _mm256_add_ps(temp_3, temp_4);
-      c_3 = _mm256_add_ps(temp_1, temp_3);
-      temp_1 = CommsLib::M256ComplexCf32Mult(a_4_1, b_1, false);
-      temp_2 = CommsLib::M256ComplexCf32Mult(a_4_2, b_2, false);
-      temp_3 = CommsLib::M256ComplexCf32Mult(a_4_3, b_3, false);
-      temp_4 = CommsLib::M256ComplexCf32Mult(a_4_4, b_4, false);
-      temp_1 = _mm256_add_ps(temp_1, temp_2);
-      temp_3 = _mm256_add_ps(temp_3, temp_4);
-      c_4 = _mm256_add_ps(temp_1, temp_3);
-      _mm256_storeu_ps(ptr_c_1+sc_idx+half_kSCsPerCacheline, c_1);
-      _mm256_storeu_ps(ptr_c_2+sc_idx+half_kSCsPerCacheline, c_2);
-      _mm256_storeu_ps(ptr_c_3+sc_idx+half_kSCsPerCacheline, c_3);
+      c_4 = CommsLib::M256ComplexCf32Mult(a_4_1, b_1, false);
+      temp = CommsLib::M256ComplexCf32Mult(a_4_2, b_2, false);
+      c_4 = _mm256_add_ps(c_4, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_4_3, b_3, false);
+      c_4 = _mm256_add_ps(c_4, temp);
+      temp = CommsLib::M256ComplexCf32Mult(a_4_4, b_4, false);
+      c_4 = _mm256_add_ps(c_4, temp);
       _mm256_storeu_ps(ptr_c_4+sc_idx+half_kSCsPerCacheline, c_4);
     }
     tsc_end = GetTime::Rdtsc();
