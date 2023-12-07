@@ -28,10 +28,23 @@ DoDemul::DoDemul(
   duration_stat_equal_ = stats_manager->GetDurationStat(DoerType::kEqual, tid);
   duration_stat_demul_ = stats_manager->GetDurationStat(DoerType::kDemul, tid);
 
+  // Allocate memory for data_gather_buffer_. For general case (SIMD gather),
+  // data_gather_buffer_ is refreshed for each subcarrier block (iteration).
+  // Thus, size will be kSCsPerCacheline * kMaxAntennas.
+  // For specialized (2x2/4x4) cases, we gather all subcarriers once and perform
+  // vectorized operations. This will be faster for small, square MIMO matrices.
+  if ((cfg_->UeAntNum() == 2 && cfg_->BsAntNum() == 2) ||
+      (cfg_->UeAntNum() == 4 && cfg_->BsAntNum() == 4)) {
   data_gather_buffer_ =
       static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
           Agora_memory::Alignment_t::kAlign64,
+          cfg_->DemulBlockSize() * kMaxAntennas * sizeof(complex_float)));
+  } else {
+    data_gather_buffer_ =
+      static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+          Agora_memory::Alignment_t::kAlign64,
           kSCsPerCacheline * kMaxAntennas * sizeof(complex_float)));
+  }
   equaled_buffer_temp_ =
       static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
           Agora_memory::Alignment_t::kAlign64,
@@ -141,7 +154,24 @@ EventData DoDemul::Launch(size_t tag) {
     for (size_t i = 0; i < max_sc_ite; ++i) {
       vec_ul_beam(i) = ul_beam_ptr[cfg_->GetBeamScId(base_sc_id + i)];
     }
-    vec_equaled = vec_ul_beam % vec_data;
+
+#ifdef __AVX512F__
+  const complex_float* ptr_data =
+    reinterpret_cast<const complex_float*>(data_ptr);
+  const complex_float* ptr_ul_beam =
+    reinterpret_cast<const complex_float*>(vec_ul_beam.memptr());
+  complex_float* ptr_equaled =
+    reinterpret_cast<complex_float*>(equal_ptr);
+  for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+    __m512 reg_data = _mm512_loadu_ps(ptr_data+i);
+    __m512 reg_ul_beam = _mm512_loadu_ps(ptr_ul_beam+i);
+    __m512 reg_equaled =
+      CommsLib::M512ComplexCf32Mult(reg_data, reg_ul_beam, false);
+    _mm512_storeu_ps(ptr_equaled+i, reg_equaled);
+  }
+#else
+  vec_equaled = vec_ul_beam % vec_data;
+#endif
 
     // Step 2: Phase shift calibration
 
@@ -287,7 +317,7 @@ EventData DoDemul::Launch(size_t tag) {
     __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
     __m512 c_1 = _mm512_add_ps(temp_1, temp_2);
     temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
-    // temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+    temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
     __m512 c_2 = _mm512_add_ps(temp_1, temp_2);
     _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
     _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
