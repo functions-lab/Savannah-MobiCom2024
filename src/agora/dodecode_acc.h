@@ -3,7 +3,9 @@
  * @brief Declaration file for the DoDecode class.
  */
 
-#ifndef DODECODE_ACC_H_
+#ifdef USE_ACC100
+
+# ifndef DODECODE_ACC_H_
 #define DODECODE_ACC_H_
 
 #include <cstdint>
@@ -112,9 +114,11 @@ class DoDecode_ACC: public Doer {
   rte_mbuf *input_pkts_burst[54];
   rte_mbuf *output_pkts_burst[54];
   rte_mempool * mbuf_pool;
-  // rte_mbuf *in_m_head; 
-  // rte_mbuf *out_m_head; 
+  // rte_mbuf *in_m_head;
+  // rte_mbuf *out_m_head;
 
 };
 
-#endif  // DODECODE_ACC_H_
+# endif  // DODECODE_ACC_H_
+
+#endif // USE_ACC100

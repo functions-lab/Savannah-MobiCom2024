@@ -121,7 +121,7 @@ message(STATUS "ENABLE_HDF5:      ${ENABLE_HDF5}")
 set(TIME_EXCLUSIVE False CACHE BOOL "TIME_EXCLUSIVE defaulting to 'False'")
 message(STATUS "TIME_EXCLUSIVE:   ${TIME_EXCLUSIVE}")
 
-set(LDPC_TYPE FlexRAN CACHE STRING "LDPC_TYPE defaulting to 'FlexRAN', valid types are FlexRAN / ACC")
+set(LDPC_TYPE FlexRAN CACHE STRING "LDPC_TYPE defaulting to 'FlexRAN', valid types are FlexRAN / ACC100")
 message(STATUS "LDPC Mode:        ${LDPC_TYPE}")
 message(STATUS "--------------------------------\n--")
 
@@ -138,9 +138,9 @@ else()
   message(STATUS "Enabled SIMULATION radio type")
 endif()
 
-if(LDPC_TYPE STREQUAL ACC)
+if(LDPC_TYPE STREQUAL ACC100)
   message(STATUS "Enabled HW Intel ACC100 LDPC Decoding")
-  add_definitions(-DUSE_ACC)
+  add_definitions(-DUSE_ACC100)
 else()
   message(STATUS "Enabled SW Intel FlexRAN LDPC Decoding")
 endif()
@@ -325,6 +325,13 @@ find_package(gflags REQUIRED)
 message(VERBOSE "  gflags: Includes ${GFLAGS_INCLUDE_DIR} Libraries: ${GFLAGS_LIBRARIES}")
 include_directories(${GFLAGS_INCLUDE_DIR})
 
+#Decoder
+if(LDPC_TYPE STREQUAL ACC100)
+  set(DECODER_SOURCES_AGORA src/agora/dodecode_acc.cc)
+elseif(LDPC_TYPE STREQUAL FlexRAN)
+  set(DECODER_SOURCES_AGORA src/agora/dodecode.cc)
+endif()
+
 #Flexran
 include_directories(
   ${FLEXRAN_FEC_LIB_DIR}/install/lib_ldpc_decoder_5gnr
@@ -489,8 +496,7 @@ set(AGORA_SOURCES ${AGORA_SOURCES}
   src/agora/dobeamweights.cc
   src/agora/dodemul.cc
   src/agora/doprecode.cc
-  src/agora/dodecode.cc
-  src/agora/dodecode_acc.cc
+  ${DECODER_SOURCES_AGORA}
   src/mac/mac_thread_basestation.cc
   src/agora/txrx/packet_txrx_sim.cc
   src/agora/txrx/workers/txrx_worker_sim.cc)
