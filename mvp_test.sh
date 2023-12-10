@@ -38,7 +38,6 @@ function display_help {
     echo "  -u, --user     - Run the user"
     echo "  -sx, --sudo-execute  - Run the basestation with sudo"
     echo "  -su, --sudo-user     - Run the user with sudo"
-#     echo "  -v, --valgrind - Run the project with vlagrind"
     echo "  -r, --read     - Read the log of the latest test run"
     echo "  -c, --clean    - Clean the project"
     echo "  -h, --help     - Display this help message"
@@ -88,11 +87,6 @@ function exe_user {
     # script -q -c "$user --conf_file $config" $logfile
 }
 
-# function valgrind_exe {
-#     echo "Running the project with valgrind..."
-#     script -q -c "valgrind --leak-check=full $exe --conf_file $config" $logfile
-# }
-
 # Function to read the log
 function read_log {
     # Find the latest log file
@@ -119,7 +113,8 @@ function clean_project {
 
 function exe_bs_sudo {
     echo "Running the basestation with sudo..."
-    sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} $exe --conf_file=$config
+    # sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} $exe --conf_file=$config
+    script -q -c "sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} $exe --conf_file $config" $logfile
 }
 
 function exe_user_sudo {
@@ -168,10 +163,6 @@ case "$1" in
     "-su")
         exe_user_sudo
         ;;
-    
-#     "-v" | "--valgrind")
-#         valgrind_exe
-#         ;;
     "-r" | "--read")
         read_log
         ;;
