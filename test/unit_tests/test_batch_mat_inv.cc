@@ -281,6 +281,41 @@ void batch_mat_inv_sympd_arma_decomp_vec_simp_intrinsic(size_t vec_len, int dim,
   // printf("Time measured = %.2f ms\n", duration_ms);
 }
 
+/*
+ * Test 2x2xN cube slice-wise matrix inversion with vector decomposition.
+ * Simplified version for square channel matrix.
+ */
+void batch_mat_inv_sympd_arma_decomp_vec_trivial(size_t vec_len, int dim,
+                                                 double freq_ghz,
+                                                 double& duration_ms,
+                                                 arma::cx_fcube cub_a,
+                                                 arma::cx_fcube& cub_b) {
+  RtAssert(dim == 2, "Only support 2x2 matrix inversion");
+
+  size_t tsc_start, tsc_end;
+  
+  // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
+  //     [ c d ]      [c' d']   [-c  a]
+
+  tsc_start = GetTime::Rdtsc();
+
+  // a_det = a*d - b*c
+  arma::cx_fcube vec_det = (cub_a.tube(0, 0) % cub_a.tube(1, 1)) -
+                           (cub_a.tube(0, 1) % cub_a.tube(1, 0));
+
+  // use reciprocal for division since multiplication is faster
+  vec_det = 1.0 / vec_det;
+
+  cub_b.tube(0, 0) =  cub_a.tube(1, 1) % vec_det;
+  cub_b.tube(0, 1) = -cub_a.tube(0, 1) % vec_det;
+  cub_b.tube(1, 0) = -cub_a.tube(1, 0) % vec_det;
+  cub_b.tube(1, 1) =  cub_a.tube(0, 0) % vec_det;
+
+  tsc_end = GetTime::Rdtsc();
+  duration_ms = GetTime::CyclesToMs(tsc_end - tsc_start, freq_ghz);
+  // printf("Time measured = %.2f ms\n", duration_ms);
+}
+
 TEST(TestBatchMatInv, TimingAnalysis) {
   int iter = 16;
   size_t vec_len = 768; // number of subcarriers in this case
@@ -289,6 +324,7 @@ TEST(TestBatchMatInv, TimingAnalysis) {
   double time_ms_vectors = 0.0;
   double time_ms_vectors_simp = 0.0;
   double time_ms_vectors_simp_intrinsic = 0.0;
+  double time_ms_vectors_trivial = 0.0;
   double freq_ghz = GetTime::MeasureRdtscFreq();
 
   double time_ms_tmp = 0.0;
@@ -315,6 +351,9 @@ TEST(TestBatchMatInv, TimingAnalysis) {
                                                        time_ms_tmp, cub_src,
                                                        cub_res);
     time_ms_vectors_simp_intrinsic += time_ms_tmp;
+    batch_mat_inv_sympd_arma_decomp_vec_trivial(vec_len, dim, freq_ghz, 
+                                                time_ms_tmp, cub_src, cub_res);
+    time_ms_vectors_trivial += time_ms_tmp;
   }
   printf("[arma] (sympd) Time for %dx loops of slices = %.2f ms\n",
          iter, time_ms_loop);
@@ -324,6 +363,8 @@ TEST(TestBatchMatInv, TimingAnalysis) {
          iter, time_ms_vectors_simp);
   printf("[arma] (sympd) Time for %dx vector decomposition (vec_simp_intrinsic) = %.2f ms\n",
          iter, time_ms_vectors_simp_intrinsic);
+  printf("[arma] (sympd) Time for %dx vector decomposition (vec_trivial) = %.2f ms\n",
+         iter, time_ms_vectors_trivial);
 }
 
 TEST(TestBatchMatInv, Correctness) {
@@ -361,10 +402,17 @@ TEST(TestBatchMatInv, Correctness) {
                                                      time_ms_dummy, cub_a,
                                                      cub_b_3);
   
+  // Method 5: vector decomposition (trivial for square matrix)
+  arma::cx_fcube cub_b_4(dim, dim, vec_len, arma::fill::zeros);
+
+  batch_mat_inv_sympd_arma_decomp_vec_trivial(vec_len, dim, freq_ghz,
+                                              time_ms_dummy, cub_a, cub_b_4);
+  
   // Check the results
   EXPECT_TRUE(arma::approx_equal(cub_b, cub_b_1, "reldiff", 1e-2));
   EXPECT_TRUE(arma::approx_equal(cub_b, cub_b_2, "reldiff", 1e-2));
   EXPECT_TRUE(arma::approx_equal(cub_b, cub_b_3, "reldiff", 1e-2));
+  EXPECT_TRUE(arma::approx_equal(cub_b, cub_b_4, "reldiff", 1e-2));
 }
 
 int main(int argc, char** argv) {
