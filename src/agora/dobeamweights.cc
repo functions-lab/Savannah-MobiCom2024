@@ -659,8 +659,6 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
 
     duration_stat_->task_duration_[3] += GetTime::WorkerRdtsc() - start_tsc3;
     duration_stat_->task_count_++;
-    printf("start_sc: %zu, last_sc_id: %zu, sc_inc: %zu\n",
-           start_sc, last_sc_id, sc_inc);
     duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
     return;
   }

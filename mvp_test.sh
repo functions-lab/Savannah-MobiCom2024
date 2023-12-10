@@ -46,7 +46,7 @@ function display_help {
 function build_project {
     echo "Building the project..."
     cd build
-    make -j16
+    make -j50
     cd ..
 }
 
