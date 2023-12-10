@@ -562,80 +562,29 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
 
     // Equivalent to: arma::inv_sympd(mat_csi.t() * mat_csi) * mat_csi.t();
 
-    // A = [ a b ], B = [a''' b''']
-    //     [ c d ]      [c''' d''']
+    // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
+    //     [ c d ]      [c' d']   [-c  a]
 
-    // // temporary storages
-    // // Product of A^T and A = A', A' = [a^2 + c^2, a*b + c*d] = [a' b']
-    // //                                 [a*b + c*d, b^2 + d^2]   [c' d']
-    // // Inversion of A' = A'' = [a'' b''] = [d'  -b'] / (a'*d' - b'*c')
-    // //                         [c'' d'']   [-c'  a']
-    // // Multiplication of A'' and A = [a''' b'''] = [a''*a + b''*c  a''*b + b''*d]
-    // //                               [c''' d''']   [c''*a + d''*c  c''*b + d''*d]
-    arma::cx_fvec vec_a_00(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_01(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_10(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_11(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_conj_00(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_conj_01(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_conj_10(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_conj_11(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_prod_00(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_prod_01(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_prod_10(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_prod_11(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_a_det(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_b_00(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_b_01(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_b_10(sc_vec_len, arma::fill::zeros);
-    arma::cx_fvec vec_b_11(sc_vec_len, arma::fill::zeros);
-
-    vec_a_00 = cub_csi.tube(0, 0);
-    vec_a_01 = cub_csi.tube(0, 1);
-    vec_a_10 = cub_csi.tube(1, 0);
-    vec_a_11 = cub_csi.tube(1, 1);
-    vec_a_conj_00 = arma::conj(vec_a_00);
-    vec_a_conj_01 = arma::conj(vec_a_01);
-    vec_a_conj_10 = arma::conj(vec_a_10);
-    vec_a_conj_11 = arma::conj(vec_a_11);
-    // a' = a^2 + c^2, b' = a*b + c*d, c' = a*b + c*d, d' = b^2 + d^2
-    vec_a_prod_00 = vec_a_00 % vec_a_conj_00 + vec_a_10 % vec_a_conj_10;
-    vec_a_prod_01 = vec_a_conj_00 % vec_a_01 + vec_a_conj_10 % vec_a_11;
-    vec_a_prod_10 = arma::conj(vec_a_prod_01); // computationally equivalent
-    vec_a_prod_11 = vec_a_conj_01 % vec_a_01 + vec_a_conj_11 % vec_a_11;
-
-    // basically move the scalar det to the end, and substitute inversed matrix
-    // to the operand of the second multiplication
-
-    // a_det = a'*d' - b'*c'
-    vec_a_det = (vec_a_prod_00 % vec_a_prod_11) -
-                (vec_a_prod_01 % vec_a_prod_10);
+    // a_det = a*d - b*c
+    arma::cx_fcube vec_det = (cub_csi.tube(0, 0) % cub_csi.tube(1, 1)) -
+                             (cub_csi.tube(0, 1) % cub_csi.tube(1, 0));
 
     // check if the channel matrix is invertible
-    if (vec_a_det.is_zero()) {
-      AGORA_LOG_ERROR("Channel matrix not invertible\n");
-    } else if (vec_a_det.is_zero(1e-10)) {
+    // if (vec_det.is_zero()) {
+    //   AGORA_LOG_ERROR("Channel matrix not invertible\n");
+    // } else
+    if (vec_det.is_zero(1e-10)) {
       // float lowest > 1e-38, normal range > 1e-8
       AGORA_LOG_WARN("Channel matrix seems not invertible\n");
     }
 
     // use reciprocal for division since multiplication is faster
-    vec_a_det = 1.0 / vec_a_det;
+    vec_det = 1.0 / vec_det;
 
-    // a''' = a''*a + b''*b, b''' = a''*c + b''*d
-    // c''' = c''*a + d''*b, d''' = c''*c + d''*d
-    cub_ul_beam.tube(0, 0) =
-      (vec_a_prod_11 % vec_a_conj_00 - vec_a_prod_01 % vec_a_conj_01) %
-      vec_a_det;
-    cub_ul_beam.tube(0, 1) =
-      (vec_a_prod_11 % vec_a_conj_10 - vec_a_prod_01 % vec_a_conj_11) %
-      vec_a_det;
-    cub_ul_beam.tube(1, 0) =
-      (vec_a_prod_00 % vec_a_conj_01 - vec_a_prod_10 % vec_a_conj_00) %
-      vec_a_det;
-    cub_ul_beam.tube(1, 1) =
-      (vec_a_prod_00 % vec_a_conj_11 - vec_a_prod_10 % vec_a_conj_10) %
-      vec_a_det;
+    cub_ul_beam.tube(0, 0) =  cub_csi.tube(1, 1) % vec_det;
+    cub_ul_beam.tube(0, 1) = -cub_csi.tube(0, 1) % vec_det;
+    cub_ul_beam.tube(1, 0) = -cub_csi.tube(1, 0) % vec_det;
+    cub_ul_beam.tube(1, 1) =  cub_csi.tube(0, 0) % vec_det;
 
     const size_t start_tsc3 = GetTime::WorkerRdtsc();
     duration_stat_->task_duration_[2] += start_tsc3 - start_tsc2;
