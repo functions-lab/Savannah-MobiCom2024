@@ -534,18 +534,14 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     //       (arma::cx_float*)(cx_src + i*sc_inc), cfg_->BsAntNum(),
     //       cfg_->SpatialStreamsNum(), false);
     // }
-    for (size_t cur_sc_id = start_sc; cur_sc_id < last_sc_id;
-         cur_sc_id = cur_sc_id + sc_inc) {
+  
+    auto* cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][0]);
+    cub_csi.tube(0, 0) = arma::cx_fvec((arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    cub_csi.tube(1, 0) = arma::cx_fvec((arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
 
-      auto* cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][0]);
-      // cast to cx_float
-      cub_csi.slice(cur_sc_id)(0, 0) = *(arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum() + cur_sc_id);
-      cub_csi.slice(cur_sc_id)(1, 0) = *(arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum() + cur_sc_id);
-
-      cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][1]);
-      cub_csi.slice(cur_sc_id)(0, 1) = *(arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum() + cur_sc_id);
-      cub_csi.slice(cur_sc_id)(1, 1) = *(arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum() + cur_sc_id);
-    }
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][1]);
+    cub_csi.tube(0, 1) = arma::cx_fvec((arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    cub_csi.tube(1, 1) = arma::cx_fvec((arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
 
     const size_t start_tsc2 = GetTime::WorkerRdtsc();
     duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
