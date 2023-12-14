@@ -1,13 +1,10 @@
 /**
- * @file dodecode.cc
- * @brief Implmentation file for the DoDecode class. Currently, just supports
- * basestation
+ * @file dodecode_acc.cc
+ * @brief Implmentation file for the DoDecode class with ACC100 acceleration. 
  */
 
 #include "dodecode_acc.h"
-
 #include "concurrent_queue_wrapper.h"
-
 #include "rte_bbdev.h"
 #include "rte_bbdev_op.h"
 #include "rte_bus_vdev.h"
@@ -31,8 +28,9 @@ static int init_op_data_objs_from_table(
     struct rte_mempool *mbuf_pool, 
     const uint16_t n, 
     uint16_t min_alignment,
-    size_t seg_length // Added seg_length as a parameter
+    size_t seg_length, // Added seg_length as a parameter
     // rte_mbuf *m_head
+    struct rte_mbuf *mbuf
 ) {
     int ret;
     unsigned int i, j;
@@ -41,7 +39,7 @@ static int init_op_data_objs_from_table(
         char *data;
         // std::cout << rte_mempool_avail_count(mbuf_pool) << std::endl;
         // if (rte_mempool_avail_count(mbuf_pool) == 0) {
-        //     printf("No more mbufs available in the pool!\n");
+            // printf("No more mbufs available in the pool! - input\n");
         //     return -1;
         // }
         struct rte_mbuf *m_head = rte_pktmbuf_alloc(mbuf_pool);
@@ -61,6 +59,8 @@ static int init_op_data_objs_from_table(
         bufs[i].length += seg_length;
 
         // Continue the same as before
+        mbuf = m_head;
+        // rte_pktmbuf_free(m_head);
     }
 
     return 0;
@@ -70,13 +70,14 @@ static int
 init_op_output_objs_from_buffer(struct rte_bbdev_op_data *bufs,
 		uint8_t* decoded_buffer_ptr,
 		struct rte_mempool *mbuf_pool, const uint16_t n, 
-    uint16_t min_alignment, size_t seg_length)
+    uint16_t min_alignment, size_t seg_length, struct rte_mbuf *mbuf)
 {
 	unsigned int i;
 
 	for (i = 0; i < n; ++i) {
+    // std::cout << "out: " << rte_mempool_avail_count(mbuf_pool) << std::endl;
 		// if (rte_mempool_avail_count(mbuf_pool) == 0) {
-		// 	printf("No more mbufs available in the pool!\n");
+		// 	printf("No more mbufs available in the pool! - output\n");
 		// 	return -1;
 		// } 
 		struct rte_mbuf *m_head = rte_pktmbuf_alloc(mbuf_pool);
@@ -97,12 +98,11 @@ init_op_output_objs_from_buffer(struct rte_bbdev_op_data *bufs,
 		rte_memcpy(data, decoded_buffer_ptr + i * seg_length, seg_length);
 
 		bufs[i].length += seg_length;
+    mbuf = m_head;
+    // rte_pktmbuf_free(m_head);
 	}
-
 	return 0;
 }
-
-
 
 DoDecode_ACC::DoDecode_ACC(
     Config* in_config, int in_tid,
@@ -118,7 +118,7 @@ DoDecode_ACC::DoDecode_ACC(
   resp_var_nodes_ = static_cast<int16_t*>(Agora_memory::PaddedAlignedAlloc(
       Agora_memory::Alignment_t::kAlign64, kVarNodesSize));
     // std::cout<<"decode constructor"<<std::endl;
-    std::string core_list = std::to_string(36);
+    std::string core_list = std::to_string(36); // this is hard set to core 36
     //  + "," + std::to_string(35) + "," + std::to_string(36) + "," + std::to_string(37);
     const char* rte_argv[] = {"txrx",        "-l",           core_list.c_str(),
                               "--log-level", "lib.eal:info", nullptr};
@@ -153,6 +153,13 @@ DoDecode_ACC::DoDecode_ACC(
     bbdev_op_pool= rte_bbdev_op_pool_create("bbdev_op_pool_dec", RTE_BBDEV_OP_LDPC_DEC, NB_MBUF, 128, rte_socket_id());
     ret = rte_bbdev_setup_queues(dev_id, 4, info.socket_id);
 
+    if (ret < 0) {
+      printf("rte_bbdev_setup_queues(%u, %u, %d) ret %i\n",
+          dev_id, 4, rte_socket_id(), ret);
+	  }
+
+    ret = rte_bbdev_intr_enable(dev_id);
+    
     struct rte_bbdev_queue_conf qconf;
     qconf.socket = info.socket_id;
     qconf.queue_size = info.drv.queue_size_lim;
@@ -200,7 +207,7 @@ DoDecode_ACC::DoDecode_ACC(
     if (mbuf_pool == NULL)
       rte_exit(EXIT_FAILURE, "Unable to create\n");
 
-    char pool_name[RTE_MEMPOOL_NAMESIZE];
+    // char pool_name[RTE_MEMPOOL_NAMESIZE];
 
     in_mbuf_pool = rte_pktmbuf_pool_create("in_pool_0", 16383, 0, 0, 22744, 0);
     out_mbuf_pool = rte_pktmbuf_pool_create("hard_out_pool_0", 16383, 0, 0, 22744, 0);
@@ -208,7 +215,6 @@ DoDecode_ACC::DoDecode_ACC(
     if (in_mbuf_pool == nullptr or out_mbuf_pool == nullptr) {
       std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
     }
-
 
 
     int rte_alloc_ref = rte_bbdev_dec_op_alloc_bulk(ops_mp, ref_dec_op, burst_sz);
@@ -236,6 +242,7 @@ DoDecode_ACC::DoDecode_ACC(
     int ret_socket_in = allocate_buffers_on_socket(inputs, 1 * sizeof(struct rte_bbdev_op_data), 0);
     int ret_socket_hard_out = allocate_buffers_on_socket(hard_outputs, 1 * sizeof(struct rte_bbdev_op_data), 0);
 
+
     ldpc_llr_decimals = capabilities->cap.ldpc_dec.llr_decimals;
     ldpc_llr_size = capabilities->cap.ldpc_dec.llr_size;
     ldpc_cap_flags = capabilities->cap.ldpc_dec.capability_flags;
@@ -256,9 +263,9 @@ DoDecode_ACC::~DoDecode_ACC() {
 int DoDecode_ACC::allocate_buffers_on_socket(struct rte_bbdev_op_data **buffers, const int len, const int socket)
 {
 	int i;
-  std::cout<<"start to allocate to socket"<<std::endl;
+  // std::cout<<"start to allocate to socket"<<std::endl;
 	*buffers = static_cast<struct rte_bbdev_op_data*>(rte_zmalloc_socket(NULL, len, 0, socket));
-  std::cout<<"no error"<<std::endl;
+  // std::cout<<"no error"<<std::endl;
 	if (*buffers == NULL) {
 		printf("WARNING: Failed to allocate op_data on socket %d\n",
 				socket);
@@ -269,8 +276,6 @@ int DoDecode_ACC::allocate_buffers_on_socket(struct rte_bbdev_op_data **buffers,
 				break;
 		}
 	}
-
-
 	return (*buffers == NULL) ? TEST_FAILED : TEST_SUCCESS;
 }
 
@@ -338,12 +343,65 @@ EventData DoDecode_ACC::Launch(size_t tag) {
 
   // size_t start_tsc1 = GetTime::WorkerRdtsc();
   // duration_stat_->task_duration_[1] += start_tsc1 - start_tsc;
+  // struct rte_mbuf *inmbuf;
+  // struct rte_mbuf *outmbuf;
 
-  int ret_init_op = init_op_data_objs_from_table(*inputs, llr_buffer_ptr, in_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen());
+
+  // int ret_init_op = init_op_data_objs_from_table(*inputs, llr_buffer_ptr, in_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen(), in_mbuf);
   // std::cout<<"ret_init_op is " << ret_init_op << std::endl;
-  ret_init_op = init_op_output_objs_from_buffer(*hard_outputs, decoded_buffer_ptr, out_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen());
+  char *data;
+  struct rte_bbdev_op_data * bufs = *inputs;
+  // std::cout << rte_mempool_avail_count(mbuf_pool) << std::endl;
+  // if (rte_mempool_avail_count(mbuf_pool) == 0) {
+  //     printf("No more mbufs available in the pool! - input\n");
+  //     return -1;
+  // }
+  struct rte_mbuf *m_head = rte_pktmbuf_alloc(in_mbuf_pool);
+  // if (m_head == nullptr) {
+  //     std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
+  //     return -1;
+  // }
+
+  bufs[0].data = m_head;
+  bufs[0].offset = 0;
+  bufs[0].length = 0;
+
+  data = rte_pktmbuf_append(m_head, ldpc_config.NumCbCodewLen());
+  
+  // Copy data from demod_data to the mbuf
+  rte_memcpy(data, llr_buffer_ptr + (0 * ldpc_config.NumCbCodewLen()), ldpc_config.NumCbCodewLen());
+  bufs[0].length += ldpc_config.NumCbCodewLen();
+
+  // int ret_init_op = init_op_output_objs_from_buffer(*hard_outputs, decoded_buffer_ptr, out_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen(), out_mbuf);
   // std::cout<<"ret_init_op is " << ret_init_op << std::endl;
   
+  // std::cout << "out: " << rte_mempool_avail_count(mbuf_pool) << std::endl;
+  // if (rte_mempool_avail_count(mbuf_pool) == 0) {
+  // 	printf("No more mbufs available in the pool! - output\n");
+  // 	return -1;
+  // } 
+
+  rte_bbdev_op_data * bufs_out = *hard_outputs;
+  struct rte_mbuf *m_head_out = rte_pktmbuf_alloc(out_mbuf_pool);
+  // if (m_head == nullptr) {
+  // 	std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
+  // 	return -1;  // Exit the program with an error code
+  // }
+
+  bufs_out[0].data = m_head_out;
+  bufs_out[0].offset = 0;
+  bufs_out[0].length = 0;
+
+  // Prepare the mbuf to receive the output data
+  char* data_out = rte_pktmbuf_append(m_head, ldpc_config.NumCbCodewLen());
+  assert(data_out == RTE_PTR_ALIGN(data_out, min_alignment));
+
+  // Assuming you will copy data from decoded_buffer_ptr to data
+  rte_memcpy(data_out, decoded_buffer_ptr + 0 * ldpc_config.NumCbCodewLen(), ldpc_config.NumCbCodewLen());
+
+  bufs_out[0].length += ldpc_config.NumCbCodewLen();
+
+
   if (kPrintDecodedData) {
     std::printf("Decoded data after init hard_outputs\n");
     for (size_t i = 0; i < (ldpc_config.NumCbLen() >> 3); i++) {
@@ -354,6 +412,9 @@ EventData DoDecode_ACC::Launch(size_t tag) {
 
   ref_dec_op[0]->ldpc_dec.input = *inputs[0];
   ref_dec_op[0]->ldpc_dec.hard_output = *hard_outputs[0];
+
+
+  // rte_pktmbuf_free(out_mbuf);
   // std::cout<<"no error when putting to ldpc_config" << std::endl;
 
   if (kPrintDecodedData) {
@@ -434,7 +495,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     std::printf("\n");
   }
 
-
   if ((kEnableMac == false) && (kPrintPhyStats == true) &&
       (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols())) {
     phy_stats_->UpdateDecodedBits(ue_id, symbol_offset, frame_slot,
@@ -460,6 +520,10 @@ EventData DoDecode_ACC::Launch(size_t tag) {
   size_t duration_3 = end - start_tsc2;
   size_t duration = end - start_tsc;
 
+
+  rte_pktmbuf_free(m_head);
+  rte_pktmbuf_free(m_head_out);
+
   duration_stat_->task_duration_[3] += duration_3;
   duration_stat_->task_duration_[0] += duration;
   // duration_stat_->task_duration_[0] += 0;
@@ -483,7 +547,20 @@ EventData DoDecode_ACC::Launch(size_t tag) {
   // rte_bbdev_stop(dev_id);
 
   // rte_pktmbuf_free(m);
+  // if (*inputs) {
+  //   free(*inputs);
+  // }
+  // if (*hard_outputs) {
+  //     free(*hard_outputs);
+  // }
 
+  // // Then, free the memory allocated for the pointers
+  // free(inputs);
+  // free(hard_outputs);
+
+
+  rte_pktmbuf_free(m_head);
+  rte_pktmbuf_free(m_head_out);
   return EventData(EventType::kDecode, tag);
 }
 

@@ -611,7 +611,7 @@ add_executable(test_agora
   $<TARGET_OBJECTS:common_sources_lib>)
 target_link_libraries(test_agora ${COMMON_LIBS})
 
-set(LDPC_TESTS test_ldpc test_ldpc_mod test_ldpc_baseband)
+set(LDPC_TESTS test_ldpc test_ldpc_mod test_ldpc_baseband test_pktmbuf_pool_create)
 foreach(test_name IN LISTS LDPC_TESTS)
   add_executable(${test_name}
     test/compute_kernels/ldpc/${test_name}.cc

@@ -105,6 +105,9 @@ class DoDecode_ACC: public Doer {
   struct rte_mempool* out_mbuf_pool;
   struct rte_mempool* bbdev_op_pool; 
 
+  struct rte_mbuf *in_mbuf;
+  struct rte_mbuf *out_mbuf;
+
   struct rte_bbdev_dec_op *ref_dec_op[1];
   struct rte_bbdev_dec_op *ops_deq[1];
 
