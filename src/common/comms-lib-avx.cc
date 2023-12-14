@@ -379,8 +379,6 @@ __m512 CommsLib::M512ComplexCf32Reciprocal(__m512 data) {
 bool CommsLib::M512ComplexCf32NearZeros(__m512 data, float threshold) {
   // Require that all data is aligned to 64 byte boundaries
   __m512 sq        __attribute__((aligned(64)));
-  __m512 denom     __attribute__((aligned(64)));
-  __m512 denom_rs  __attribute__((aligned(64)));
   __m512 real_sq   __attribute__((aligned(64)));
   __m512 imag_sq   __attribute__((aligned(64)));
 

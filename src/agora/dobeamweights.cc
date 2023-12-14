@@ -483,13 +483,15 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
              cfg_->Frame().NumDLSyms() == 0 &&
              num_ext_ref_ == 0 &&
              kUseInverseForZF) {
-    // if (start_sc == 0 && frame_id == 0) {
-    //   printf("Using 2x2 ZF\n");
-    // }
 
     const size_t sc_vec_len = cfg_->OfdmDataNum() / sc_inc;
-    arma::cx_fcube cub_ul_beam(cfg_->SpatialStreamsNum(), cfg_->BsAntNum(),
-                               sc_vec_len);
+
+    // Prepare UL beam matrix. Let Armadillo help handle the memory.
+    // The format here is identical to the input of equalizer.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
+                               cfg_->BsAntNum(), sc_vec_len, false);
 
     const size_t start_tsc1 = GetTime::WorkerRdtsc();
 
@@ -592,27 +594,7 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     cub_ul_beam.tube(1, 1) =  cub_csi.tube(0, 0) % cub_det;
 #endif
 
-    const size_t start_tsc3 = GetTime::WorkerRdtsc();
-    duration_stat_->task_duration_[2] += start_tsc3 - start_tsc2;
-
-    for (size_t cur_sc_id = start_sc; cur_sc_id < last_sc_id;
-        cur_sc_id = cur_sc_id + sc_inc) {
-      complex_float* ul_beam_mem = ul_beam_matrices_[frame_slot][cur_sc_id];
-      arma::cx_fmat mat_ul_beam(reinterpret_cast<arma::cx_float*>(ul_beam_mem),
-                            cfg_->SpatialStreamsNum(), cfg_->BsAntNum(), false);
-      mat_ul_beam = cub_ul_beam.slice(cur_sc_id);
-    }
-    // // Distribute beam weights
-    // complex_float* ul_beam_mem = ul_beam_matrices_[frame_slot][start_sc];
-    // for (size_t i = 0; i < sc_vec_len; ++i) {
-    //   arma::cx_fmat mat_ul_beam = arma::cx_fmat(
-    //       (arma::cx_float*)(ul_beam_mem + i*sc_inc),
-    //       cfg_->SpatialStreamsNum(), cfg_->BsAntNum(), false);
-    //   mat_ul_beam = cub_ul_beam.slice(i);
-    //   // *(arma::cx_float*)(ul_beam_mem + i*sc_inc) = cub_ul_beam.slice(i);
-    // }
-
-    duration_stat_->task_duration_[3] += GetTime::WorkerRdtsc() - start_tsc3;
+    duration_stat_->task_duration_[2] += GetTime::WorkerRdtsc() - start_tsc2;
     duration_stat_->task_count_++;
     duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
     return;

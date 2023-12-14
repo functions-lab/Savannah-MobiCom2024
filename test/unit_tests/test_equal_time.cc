@@ -430,8 +430,6 @@ void equal_op_profile_2x2_complex() {
 
     // Apply previously calc'ed phase shift to data
     if (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols()) {
-
-
       tsc_apply_0 = GetTime::Rdtsc();
       arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
       tsc_apply_1 = GetTime::Rdtsc();
