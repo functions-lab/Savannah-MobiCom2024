@@ -496,36 +496,37 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     const size_t start_tsc1 = GetTime::WorkerRdtsc();
 
     // Gather CSI
-    // Handle each subcarrier in the block (base_sc_id : last_sc_id -1)
-    for (size_t cur_sc_id = start_sc; cur_sc_id < last_sc_id;
-         cur_sc_id = cur_sc_id + sc_inc) {
+    // // Handle each subcarrier in the block (base_sc_id : last_sc_id -1)
+    // for (size_t cur_sc_id = start_sc; cur_sc_id < last_sc_id;
+    //      cur_sc_id = cur_sc_id + sc_inc) {
 
-      // Gather CSI matrices of each pilot from partially-transposed CSIs.
-      arma::uvec ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
-      for (size_t selected_ue_idx = 0;
-          selected_ue_idx < cfg_->SpatialStreamsNum(); selected_ue_idx++) {
-        size_t ue_idx = ue_list.at(selected_ue_idx);
-        auto* dst_csi_ptr = reinterpret_cast<float*>(
-            csi_gather_buffer_ + cfg_->BsAntNum() * selected_ue_idx);
-        if (kUsePartialTrans) {
-          PartialTransposeGather(
-              cur_sc_id,
-              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
-              dst_csi_ptr, cfg_->BsAntNum());
-        } else {
-          TransposeGather(
-              cur_sc_id,
-              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
-              dst_csi_ptr, cfg_->BsAntNum(), cfg_->OfdmDataNum());
-        }
-      }
+    //   // Gather CSI matrices of each pilot from partially-transposed CSIs.
+    //   arma::uvec ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
+    //   for (size_t selected_ue_idx = 0;
+    //       selected_ue_idx < cfg_->SpatialStreamsNum(); selected_ue_idx++) {
+    //     size_t ue_idx = ue_list.at(selected_ue_idx);
+    //     auto* dst_csi_ptr = reinterpret_cast<float*>(
+    //         csi_gather_buffer_ + cfg_->BsAntNum() * selected_ue_idx);
+    //     if (kUsePartialTrans) {
+    //       PartialTransposeGather(
+    //           cur_sc_id,
+    //           reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+    //           dst_csi_ptr, cfg_->BsAntNum());
+    //     } else {
+    //       TransposeGather(
+    //           cur_sc_id,
+    //           reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+    //           dst_csi_ptr, cfg_->BsAntNum(), cfg_->OfdmDataNum());
+    //     }
+    //   }
 
-      arma::cx_fmat mat_csi_temp((arma::cx_float*)csi_gather_buffer_,
-                                 cfg_->BsAntNum(),
-                                 cfg_->SpatialStreamsNum(), false);
+    //   arma::cx_fmat mat_csi_temp((arma::cx_float*)csi_gather_buffer_,
+    //                              cfg_->BsAntNum(),
+    //                              cfg_->SpatialStreamsNum(), false);
 
-      cub_csi.slice(cur_sc_id) = mat_csi_temp;
-    }
+    //   cub_csi.slice(cur_sc_id) = mat_csi_temp;
+    // }
+
     // complex_float* cx_src = &csi_buffers_[frame_slot][ue_idx][start_sc];
     // for (size_t i = 0; i < sc_vec_len; ++i) {
     //   // cub_csi.slice(i) = *(arma::cx_float*)(cx_src + i*sc_inc);
@@ -533,6 +534,32 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     //       (arma::cx_float*)(cx_src + i*sc_inc), cfg_->BsAntNum(),
     //       cfg_->SpatialStreamsNum(), false);
     // }
+    for (size_t cur_sc_id = start_sc; cur_sc_id < last_sc_id;
+         cur_sc_id = cur_sc_id + sc_inc) {
+
+      size_t ue_idx = 0;
+      auto* cx_src = reinterpret_cast<complex_float*>(
+          csi_buffers_[frame_slot][ue_idx]);
+      auto* cx_dst = reinterpret_cast<complex_float*>(
+          csi_gather_buffer_ + cfg_->BsAntNum() * ue_idx);
+      cx_dst[0] = cx_src[0 * cfg_->OfdmDataNum() + cur_sc_id];
+      cx_dst[1] = cx_src[1 * cfg_->OfdmDataNum() + cur_sc_id];
+
+      ue_idx = 1;
+      cx_src = reinterpret_cast<complex_float*>(
+          csi_buffers_[frame_slot][ue_idx]);
+      cx_dst = reinterpret_cast<complex_float*>(
+          csi_gather_buffer_ + cfg_->BsAntNum() * ue_idx);
+      
+      cx_dst[0] = cx_src[0 * cfg_->OfdmDataNum() + cur_sc_id];
+      cx_dst[1] = cx_src[1 * cfg_->OfdmDataNum() + cur_sc_id];
+
+      arma::cx_fmat mat_csi_temp((arma::cx_float*)csi_gather_buffer_,
+                                 cfg_->BsAntNum(),
+                                 cfg_->SpatialStreamsNum(), false);
+
+      cub_csi.slice(cur_sc_id) = mat_csi_temp;
+    }
 
     const size_t start_tsc2 = GetTime::WorkerRdtsc();
     duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
