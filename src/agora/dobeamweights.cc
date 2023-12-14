@@ -536,55 +536,86 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
 
     const size_t start_tsc2 = GetTime::WorkerRdtsc();
     duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
-    
-    // for (size_t cur_sc_id = start_sc; cur_sc_id < last_sc_id;
-    //      cur_sc_id = cur_sc_id + sc_inc) {
-    //   arma::cx_fmat mat_csi = cub_csi.slice(cur_sc_id);
-
-    //   // arma::cx_fmat mat_ul_beam_tmp;
-    //   // if (kUseInverseForZF) {
-    //   //   try {
-    //   //     mat_ul_beam_tmp =
-    //   //         arma::inv_sympd(mat_csi.t() * mat_csi) * mat_csi.t();
-    //   //   } catch (std::runtime_error&) {
-    //   //     AGORA_LOG_WARN(
-    //   //         "Failed to invert channel matrix, falling back to pinv()\n");
-    //   //     arma::pinv(mat_ul_beam_tmp, mat_csi, 1e-2, "dc");
-    //   //   }
-    //   // } else {
-    //   //   arma::pinv(mat_ul_beam_tmp, mat_csi, 1e-2, "dc");
-    //   // }
-    //   // cub_ul_beam.slice(cur_sc_id) = mat_ul_beam_tmp;
-
-    //   cub_ul_beam.slice(cur_sc_id) =
-    //     arma::inv_sympd(mat_csi.t() * mat_csi) * mat_csi.t();
-    // }
 
     // Equivalent to: arma::inv_sympd(mat_csi.t() * mat_csi) * mat_csi.t();
+#ifdef __AVX512F__
+    arma::cx_frowvec vec_a = cub_csi.tube(0, 0);
+    arma::cx_frowvec vec_b = cub_csi.tube(0, 1);
+    arma::cx_frowvec vec_c = cub_csi.tube(1, 0);
+    arma::cx_frowvec vec_d = cub_csi.tube(1, 1);
+    // arma::cx_frowvec vec_det = arma::zeros<arma::cx_frowvec>(sc_vec_len);
+
+    complex_float* ptr_a =
+      reinterpret_cast<complex_float*>(vec_a.memptr());
+    complex_float* ptr_b =
+      reinterpret_cast<complex_float*>(vec_b.memptr());
+    complex_float* ptr_c =
+      reinterpret_cast<complex_float*>(vec_c.memptr());
+    complex_float* ptr_d =
+      reinterpret_cast<complex_float*>(vec_d.memptr());
+    // complex_float* ptr_det =
+    //   reinterpret_cast<complex_float*>(vec_det.memptr());
 
     // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
     //     [ c d ]      [c' d']   [-c  a]
+    for (size_t i = 0; i < sc_vec_len; i += kSCsPerCacheline) {
+      __m512 a = _mm512_loadu_ps(ptr_a + i);
+      __m512 b = _mm512_loadu_ps(ptr_b + i);
+      __m512 c = _mm512_loadu_ps(ptr_c + i);
+      __m512 d = _mm512_loadu_ps(ptr_d + i);
 
-    // a_det = a*d - b*c
-    arma::cx_fcube vec_det = (cub_csi.tube(0, 0) % cub_csi.tube(1, 1)) -
+      // det = a*d - b*c
+      __m512 term1 = CommsLib::M512ComplexCf32Mult(a, d, false);
+      __m512 term2 = CommsLib::M512ComplexCf32Mult(b, c, false);
+      __m512 det = _mm512_sub_ps(term1, term2);
+
+      // lack of division of complex numbers.
+      // use reciprocal for division since multiplication is faster
+      det = CommsLib::M512ComplexCf32Reciprocal(det);
+
+      // check if the channel matrix is invertible,
+      // float lowest > 1e-38, normal range > 1e-8
+      if (unlikely(CommsLib::M512ComplexCf32NearZeros(det, 1e-10))) {
+        AGORA_LOG_WARN("Channel matrix seems not invertible\n");
+      }
+      // _mm512_storeu_ps(ptr_det + i, det);
+
+      a = CommsLib::M512ComplexCf32Mult(a, det, false);
+      b = CommsLib::M512ComplexCf32Mult(b, det, false);
+      c = CommsLib::M512ComplexCf32Mult(c, det, false);
+      d = CommsLib::M512ComplexCf32Mult(d, det, false);
+
+      _mm512_storeu_ps(ptr_a + i, a);
+      _mm512_storeu_ps(ptr_b + i, b);
+      _mm512_storeu_ps(ptr_c + i, c);
+      _mm512_storeu_ps(ptr_d + i, d);
+    }
+    cub_ul_beam.tube(0, 0) = vec_d;
+    cub_ul_beam.tube(0, 1) = -vec_b;
+    cub_ul_beam.tube(1, 0) = -vec_c;
+    cub_ul_beam.tube(1, 1) = vec_a;
+#else
+    // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
+    //     [ c d ]      [c' d']   [-c  a]
+
+    // det = a*d - b*c
+    arma::cx_fcube cub_det = (cub_csi.tube(0, 0) % cub_csi.tube(1, 1)) -
                              (cub_csi.tube(0, 1) % cub_csi.tube(1, 0));
 
-    // check if the channel matrix is invertible
-    // if (vec_det.is_zero()) {
-    //   AGORA_LOG_ERROR("Channel matrix not invertible\n");
-    // } else
-    if (vec_det.is_zero(1e-10)) {
-      // float lowest > 1e-38, normal range > 1e-8
+    // check if the channel matrix is invertible,
+    // float lowest > 1e-38, normal range > 1e-8
+    if (unlikely(cub_det.is_zero(1e-10))) {
       AGORA_LOG_WARN("Channel matrix seems not invertible\n");
     }
 
     // use reciprocal for division since multiplication is faster
-    vec_det = 1.0 / vec_det;
+    cub_det = 1.0 / cub_det;
 
-    cub_ul_beam.tube(0, 0) =  cub_csi.tube(1, 1) % vec_det;
-    cub_ul_beam.tube(0, 1) = -cub_csi.tube(0, 1) % vec_det;
-    cub_ul_beam.tube(1, 0) = -cub_csi.tube(1, 0) % vec_det;
-    cub_ul_beam.tube(1, 1) =  cub_csi.tube(0, 0) % vec_det;
+    cub_ul_beam.tube(0, 0) =  cub_csi.tube(1, 1) % cub_det;
+    cub_ul_beam.tube(0, 1) = -cub_csi.tube(0, 1) % cub_det;
+    cub_ul_beam.tube(1, 0) = -cub_csi.tube(1, 0) % cub_det;
+    cub_ul_beam.tube(1, 1) =  cub_csi.tube(0, 0) % cub_det;
+#endif
 
     const size_t start_tsc3 = GetTime::WorkerRdtsc();
     duration_stat_->task_duration_[2] += start_tsc3 - start_tsc2;
