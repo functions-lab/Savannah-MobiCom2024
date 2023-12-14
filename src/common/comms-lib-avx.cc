@@ -319,6 +319,97 @@ std::vector<std::complex<float>> CommsLib::ComplexMultAvx(
   return out;
 }
 
+#ifdef __AVX512F__
+/**
+ * Perform complex reciprocol of a vector of single precision (32 bit)
+ * floats using AVX-512.
+ * @param data: vector to reciprocate
+ */
+__m512 CommsLib::M512ComplexCf32Reciprocal(__m512 data) {
+  // Require that all data is aligned to 64 byte boundaries
+  __m512 sq        __attribute__((aligned(64)));
+  __m512 denom     __attribute__((aligned(64)));
+  __m512 denom_rs  __attribute__((aligned(64)));
+  __m512 real_sq   __attribute__((aligned(64)));
+  __m512 imag_sq   __attribute__((aligned(64)));
+  __m512 numerator __attribute__((aligned(64)));
+  __m512 res       __attribute__((aligned(64)));
+
+
+  // TODO: Check here if the sign is inverted
+  const __m512 neg = _mm512_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
+                                    1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+  const __m512 real_mask =
+      _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+                    0.0, 1.0, 0.0, 1.0, 0.0);
+  const __m512 imag_mask =
+      _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+                     0.0, 1.0, 0.0, 1.0, 0.0);
+
+  /* Strategy: 1/(a+bj) = (a-bj)/(a^2+b^2) */
+  /* Step 1: generate numerator */
+  numerator = _mm512_mul_ps(data, neg);  // (i1, -q1, i2, -q2, ...) = (a - bj)
+
+  /* Step 2: find squares */
+  sq = _mm512_mul_ps(data, data);  // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2,
+                                   // b^2)
+  real_sq = _mm512_mul_ps(sq, real_mask);
+  imag_sq = _mm512_mul_ps(sq, imag_mask);
+  imag_sq = _mm512_castsi512_ps(_mm512_slli_epi64(
+              _mm512_castps_si512(imag_sq), 0x20)); // left shift 32 bits
+
+  /* Step 3: generate denominator */
+  denom = _mm512_add_ps(real_sq, imag_sq);  // (a^2 + b^2, 0, a^2 + b^2, 0, ...)
+  denom_rs = _mm512_castsi512_ps(_mm512_srli_epi64(
+              _mm512_castps_si512(denom), 0x20)); // right shift 32 bits
+  denom = _mm512_add_ps(denom, denom_rs);    // (a^2 + b^2, a^2 + b^2, ...)
+
+  /* Step 4: divide conj(data) by denominator */
+  res = _mm512_div_ps(numerator, denom);
+  return res;
+}
+#endif
+
+#ifdef __AVX512F__
+/**
+ * Perform complex reciprocol of a vector of single precision (32 bit)
+ * floats using AVX-512.
+ * @param data: vector to compare
+ */
+bool CommsLib::M512ComplexCf32NearZeros(__m512 data, float threshold) {
+  // Require that all data is aligned to 64 byte boundaries
+  __m512 sq        __attribute__((aligned(64)));
+  __m512 real_sq   __attribute__((aligned(64)));
+  __m512 imag_sq   __attribute__((aligned(64)));
+
+  const __m512 real_mask =
+      _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+                    0.0, 1.0, 0.0, 1.0, 0.0);
+  const __m512 imag_mask =
+      _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+                     0.0, 1.0, 0.0, 1.0, 0.0);
+
+  /* calculate the square of the absolute value of each complex value number */
+  sq = _mm512_mul_ps(data, data);  // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2,
+                                   // b^2)
+  real_sq = _mm512_mul_ps(sq, real_mask);
+  imag_sq = _mm512_mul_ps(sq, imag_mask);
+  imag_sq = _mm512_castsi512_ps(_mm512_slli_epi64(
+              _mm512_castps_si512(imag_sq), 0x20)); // left shift 32 bits
+  sq = _mm512_add_ps(real_sq, imag_sq);  // (a^2 + b^2, 0, a^2 + b^2, 0, ...)
+  
+  /* broadcast all elements with the same value, square to avoid sqrt(data) */
+  __m512 thres = _mm512_set1_ps(threshold*threshold);
+
+  /* compare with the threshold, set the mask if data < thres */
+  __mmask16 comp = _mm512_cmplt_ps_mask(data, thres);
+  return comp == -1; /* -1 == 0xFFFF */
+
+  // float max = mm512_mask_reduce_max_ps(comp/*mask*/, sq);
+  // return max < threshold;
+}
+#endif
+
 std::vector<std::complex<float>> CommsLib::AutoCorrMultAvx(
     std::vector<std::complex<float>> const& f, const int dly, const bool conj) {
 #if 0

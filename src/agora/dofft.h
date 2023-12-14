@@ -92,7 +92,8 @@ class DoFFT : public Doer {
    * order.
    */
   void PartialTranspose(complex_float* out_buf, size_t ant_id,
-                        SymbolType symbol_type) const;
+                        SymbolType symbol_type,
+                        bool local_disable_partial_trans) const;
 
  private:
   Table<complex_float>& data_buffer_;

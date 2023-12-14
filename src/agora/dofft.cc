@@ -211,8 +211,16 @@ EventData DoFFT::Launch(size_t tag) {
       }
     }
 #endif
-    PartialTranspose(csi_buffers_[frame_slot][pilot_symbol_id], ant_id,
-                     SymbolType::kPilot);
+    // For special case of 2x2 MIMO, disable partial transpose to store desired
+    // data orders: for each (antenna, ue) pair, store subcarriers continuously
+    // This reduces the data gathering time for CSI estimation.
+    if (cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2) {
+      PartialTranspose(csi_buffers_[frame_slot][pilot_symbol_id], ant_id,
+                      SymbolType::kPilot, true);
+    } else {
+      PartialTranspose(csi_buffers_[frame_slot][pilot_symbol_id], ant_id,
+                       SymbolType::kPilot, false);
+    }
 
     // Expand partial CSI from freq-orth pilot to full CSI per UE
     // TODO 1. allow pilot sc group size different than kTransposeBlockSize
@@ -242,7 +250,7 @@ EventData DoFFT::Launch(size_t tag) {
     }
   } else if (sym_type == SymbolType::kUL) {
     PartialTranspose(cfg_->GetDataBuf(data_buffer_, frame_id, symbol_id),
-                     ant_id, SymbolType::kUL);
+                     ant_id, SymbolType::kUL, false);
   } else if (sym_type == SymbolType::kCalUL) {
     // Only process uplink for antennas that also do downlink in this frame
     // for consistency with calib downlink processing.
@@ -256,7 +264,7 @@ EventData DoFFT::Launch(size_t tag) {
       complex_float* calib_ul_ptr =
           &calib_ul_buffer_[cal_index][ant_id * cfg_->OfdmDataNum()];
 
-      PartialTranspose(calib_ul_ptr, ant_id, sym_type);
+      PartialTranspose(calib_ul_ptr, ant_id, sym_type, false);
 #if !defined(TIME_EXCLUSIVE)
       phy_stats_->UpdateCalibPilotSnr(cal_index, 1, ant_id, fft_inout_);
 #endif
@@ -277,7 +285,7 @@ EventData DoFFT::Launch(size_t tag) {
 
       complex_float* calib_dl_ptr =
           &calib_dl_buffer_[cal_index][pilot_tx_ant * cfg_->OfdmDataNum()];
-      PartialTranspose(calib_dl_ptr, pilot_tx_ant, sym_type);
+      PartialTranspose(calib_dl_ptr, pilot_tx_ant, sym_type, false);
 #if !defined(TIME_EXCLUSIVE)
       phy_stats_->UpdateCalibPilotSnr(cal_index, 0, pilot_tx_ant, fft_inout_);
 #endif
@@ -305,7 +313,8 @@ EventData DoFFT::Launch(size_t tag) {
 }
 
 void DoFFT::PartialTranspose(complex_float* out_buf, size_t ant_id,
-                             SymbolType symbol_type) const {
+                             SymbolType symbol_type,
+                             bool local_disable_partial_trans) const {
   // We have OfdmDataNum() % kTransposeBlockSize == 0
   const size_t num_sc_blocks = cfg_->OfdmDataNum() / kTransposeBlockSize;
 
@@ -323,7 +332,7 @@ void DoFFT::PartialTranspose(complex_float* out_buf, size_t ant_id,
           (symbol_type == SymbolType::kCalUL)) {
         dst = &out_buf[sc_idx];
       } else {
-        dst = kUsePartialTrans
+        dst = kUsePartialTrans && !local_disable_partial_trans
                   ? &out_buf[sc_block_base_offset +
                              (ant_id * kTransposeBlockSize) + sc_j]
                   : &out_buf[(cfg_->OfdmDataNum() * ant_id) + sc_j +
