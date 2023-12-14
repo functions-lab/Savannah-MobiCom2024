@@ -418,20 +418,8 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
   //        " base_sc_id: %zu, last_sc_id: %zu\n",
   //        cfg_->BeamBlockSize(), cfg_->OfdmDataNum(), base_sc_id, last_sc_id);
 
-  // Default: Handle each subcarrier one by one
-  size_t sc_inc = 1;
-  size_t start_sc = base_sc_id;
-  // When grouping sc, we can skip all sc except sc % PilotScGroupSize == 0
-  if (cfg_->GroupPilotSc()) {
-    // When grouping sc only process the first sc in each group
-    sc_inc = cfg_->PilotScGroupSize();
-    const size_t rem = start_sc % cfg_->PilotScGroupSize();
-    if (rem != 0) {
-      //Start at the next multiple of PilotScGroupSize
-      start_sc += (cfg_->PilotScGroupSize() - rem);
-    }
-  }
 
+  // Note: no subcarrirer grouping or partial transpose for special case.
   // Reduce to scalar, vectorized operation in special case (1x1 ant config),
   // uplink, zeroforcing
   if (cfg_->BsAntNum() == 1 && cfg_->UeAntNum() == 1 &&
@@ -440,42 +428,35 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       cfg_->Frame().NumDLSyms() == 0 &&
       num_ext_ref_ == 0 &&
       kUseInverseForZF) {
-    if (start_sc == 0) { // TODO: fix this with beam blk size & sc group'n setup
-      const size_t start_tsc1 = GetTime::WorkerRdtsc();
+    
+    const size_t start_tsc1 = GetTime::WorkerRdtsc();
 
-      // TODO: set flag to switch whether to group SCs
-      const size_t sc_vec_len = cfg_->OfdmDataNum() / sc_inc;
-      arma::cx_fvec csi_vec(sc_vec_len);
-      arma::cx_fvec ul_beam_vec(sc_vec_len);
-      size_t ue_idx = 0; // If UeAntNum() == 1, only one UE exists.
+    RtAssert(cfg_->BeamBlockSize() == cfg_->OfdmDataNum(),
+             "BeamBlockSize must be equal to OfdmDataNum to enable special"
+             " case acceleration.");
 
-      // Gather CSI
-      complex_float* cx_src = &csi_buffers_[frame_slot][ue_idx][start_sc];
-      for (size_t i = 0; i < sc_vec_len; ++i) {
-        csi_vec(i) = *(arma::cx_float*)(cx_src + i*sc_inc);
-      }
+    const size_t sc_vec_len = cfg_->OfdmDataNum();
+    const size_t ue_idx = 0; // If UeAntNum() == 1, only one UE exists.
 
-      const size_t start_tsc2 = GetTime::WorkerRdtsc();
-      duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+    // Gather CSI
+    complex_float* cx_src = &csi_buffers_[frame_slot][ue_idx][base_sc_id];
+    arma::cx_fvec csi_vec((arma::cx_float*)cx_src, sc_vec_len, false);
 
-      // Compute beam weights (zero-forcing)
-      ul_beam_vec = (1/(arma::square(arma::real(csi_vec)) + 
-                        arma::square(arma::imag(csi_vec))))
-                    % arma::conj(csi_vec);
+    // Prepare UL beam matrix.
+    complex_float* ul_beam_mem = ul_beam_matrices_[frame_slot][base_sc_id];
+    arma::cx_fvec ul_beam_vec((arma::cx_float*)ul_beam_mem, sc_vec_len, false);
 
-      const size_t start_tsc3 = GetTime::WorkerRdtsc();
-      duration_stat_->task_duration_[2] += start_tsc3 - start_tsc2;
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
 
-      // Distribute beam weights
-      complex_float* ul_beam_mem = ul_beam_matrices_[frame_slot][start_sc];
-      for (size_t i = 0; i < sc_vec_len; ++i) {
-        *(arma::cx_float*)(ul_beam_mem + i*sc_inc) = ul_beam_vec(i);
-      }
+    // Compute beam weights (zero-forcing)
+    ul_beam_vec = (1/(arma::square(arma::real(csi_vec)) + 
+                      arma::square(arma::imag(csi_vec))))
+                  % arma::conj(csi_vec);
 
-      duration_stat_->task_duration_[3] += GetTime::WorkerRdtsc() - start_tsc3;
-      duration_stat_->task_count_++;
-      duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
-    }
+    duration_stat_->task_duration_[2] += GetTime::WorkerRdtsc() - start_tsc2;
+    duration_stat_->task_count_++;
+    duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
     return;
   } else if (cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2 &&
              cfg_->SpatialStreamsNum() == 2 &&
@@ -484,7 +465,7 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
              num_ext_ref_ == 0 &&
              kUseInverseForZF) {
 
-    const size_t sc_vec_len = cfg_->OfdmDataNum() / sc_inc;
+    const size_t sc_vec_len = cfg_->OfdmDataNum();
 
     // Prepare UL beam matrix. Let Armadillo help handle the memory.
     // The format here is identical to the input of equalizer.
@@ -598,6 +579,21 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     duration_stat_->task_count_++;
     duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
     return;
+  } // end special 1x1 or 2x2 cases
+
+  // Default: Handle each subcarrier one by one
+  size_t sc_inc = 1;
+  size_t start_sc = base_sc_id;
+
+  // When grouping sc, we can skip all sc except sc % PilotScGroupSize == 0
+  if (cfg_->GroupPilotSc()) {
+    // When grouping sc only process the first sc in each group
+    sc_inc = cfg_->PilotScGroupSize();
+    const size_t rem = start_sc % cfg_->PilotScGroupSize();
+    if (rem != 0) {
+      //Start at the next multiple of PilotScGroupSize
+      start_sc += (cfg_->PilotScGroupSize() - rem);
+    }
   }
 
   // Handle each subcarrier in the block (base_sc_id : last_sc_id -1)
