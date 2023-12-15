@@ -275,19 +275,21 @@ EventData DoDemul::Launch(size_t tag) {
     for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
       // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
       // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
-      __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
-      __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
-      __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
-      __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
       __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
       __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
-      __m512 temp_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
-      __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
-      __m512 c_1 = _mm512_add_ps(temp_1, temp_2);
-      temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
-      temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
-      __m512 c_2 = _mm512_add_ps(temp_1, temp_2);
+
+      __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+      __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+      __m512 c_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+      __m512 temp = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+      c_1 = _mm512_add_ps(c_1, temp);
       _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+
+      __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+      __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+      __m512 c_2 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+      temp = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+      c_2 = _mm512_add_ps(c_2, temp);
       _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
     }
 
