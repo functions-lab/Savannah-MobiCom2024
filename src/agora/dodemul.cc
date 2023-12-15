@@ -295,15 +295,12 @@ EventData DoDemul::Launch(size_t tag) {
     cub_equaled.tube(1, 0) = vec_c_2;
 #else
     // Step 0: Re-arrange data
-    complex_float* dst = data_gather_buffer_;
-    for (size_t i = 0; i < max_sc_ite; i++) {
-      for (size_t ant_i = 0; ant_i < cfg_->BsAntNum(); ant_i++) {
-        *dst++ = data_buf[ant_i * cfg_->OfdmDataNum() + base_sc_id + i];
-      }
-    }
-    arma::cx_float* data_ptr =
-      (arma::cx_float*)(&data_gather_buffer_[base_sc_id]);
-    arma::cx_fcube cub_data(data_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
+    arma::cx_float* data_ptr = (arma::cx_float*)data_buf;
+    arma::cx_fvec vec_data_0(data_ptr, max_sc_ite, false);
+    arma::cx_fvec vec_data_1(data_ptr+max_sc_ite, max_sc_ite, false);
+    arma::cx_fcube cub_data(cfg_->BsAntNum(), 1, max_sc_ite);
+    cub_data.tube(0, 0) = vec_data_0;
+    cub_data.tube(1, 0) = vec_data_1;
 
     // cub_data.print("cub_data");
     // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
