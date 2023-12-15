@@ -467,46 +467,30 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
 
     const size_t sc_vec_len = cfg_->OfdmDataNum();
 
-    // Prepare UL beam matrix. Let Armadillo help handle the memory.
-    // The format here is identical to the input of equalizer.
-    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
-      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
-    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
-                               cfg_->BsAntNum(), sc_vec_len, false);
-
     const size_t start_tsc1 = GetTime::WorkerRdtsc();
-
-    // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
-    auto* cx_src =
-      reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][0]);
-    arma::cx_fvec vec_csi_a = arma::cx_fvec(
-      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
-    arma::cx_fvec vec_csi_c = arma::cx_fvec(
-      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
-    
-    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][1]);
-    arma::cx_fvec vec_csi_b = arma::cx_fvec(
-      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
-    arma::cx_fvec vec_csi_d = arma::cx_fvec(
-      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
-
-    const size_t start_tsc2 = GetTime::WorkerRdtsc();
-    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
 
     // Equivalent to: arma::inv_sympd(mat_csi.t() * mat_csi) * mat_csi.t();
 #ifdef __AVX512F__
-    // arma::cx_frowvec vec_det = arma::zeros<arma::cx_frowvec>(sc_vec_len);
 
-    complex_float* ptr_a =
-      reinterpret_cast<complex_float*>(vec_csi_a.memptr());
-    complex_float* ptr_b =
-      reinterpret_cast<complex_float*>(vec_csi_b.memptr());
-    complex_float* ptr_c =
-      reinterpret_cast<complex_float*>(vec_csi_c.memptr());
-    complex_float* ptr_d =
-      reinterpret_cast<complex_float*>(vec_csi_d.memptr());
+    // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
+    complex_float* ptr_a = csi_buffers_[frame_slot][0];
+    complex_float* ptr_b = csi_buffers_[frame_slot][1];
+    complex_float* ptr_c = ptr_a + sc_vec_len;
+    complex_float* ptr_d = ptr_b + sc_vec_len;
+
+    // Prepare UL beam matrix. Linearly distribute the memory.
+    complex_float* ul_beam_mem = ul_beam_matrices_[frame_slot][0];
+    complex_float* ul_beam_a = ul_beam_mem;
+    complex_float* ul_beam_b = ul_beam_mem + sc_vec_len;
+    complex_float* ul_beam_c = ul_beam_mem + 2 * sc_vec_len;
+    complex_float* ul_beam_d = ul_beam_mem + 3 * sc_vec_len;
+
+    // arma::cx_frowvec vec_det = arma::zeros<arma::cx_frowvec>(sc_vec_len);
     // complex_float* ptr_det =
     //   reinterpret_cast<complex_float*>(vec_det.memptr());
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
 
     // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
     //     [ c d ]      [c' d']   [-c  a]
@@ -537,16 +521,45 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       c = CommsLib::M512ComplexCf32Mult(c, det, false);
       d = CommsLib::M512ComplexCf32Mult(d, det, false);
 
-      _mm512_storeu_ps(ptr_a + i, a);
-      _mm512_storeu_ps(ptr_b + i, b);
-      _mm512_storeu_ps(ptr_c + i, c);
-      _mm512_storeu_ps(ptr_d + i, d);
+      __m512 neg = _mm512_set1_ps(-1.0f);
+      b = _mm512_mul_ps(b, neg);
+      c = _mm512_mul_ps(c, neg);
+      _mm512_storeu_ps(ul_beam_a + i, d);
+      _mm512_storeu_ps(ul_beam_b + i, b);
+      _mm512_storeu_ps(ul_beam_c + i, c);
+      _mm512_storeu_ps(ul_beam_d + i, a);
     }
-    cub_ul_beam.tube(0, 0) =  vec_csi_d;
-    cub_ul_beam.tube(0, 1) = -vec_csi_b;
-    cub_ul_beam.tube(1, 0) = -vec_csi_c;
-    cub_ul_beam.tube(1, 1) =  vec_csi_a;
 #else
+    // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
+    auto* cx_src =
+      reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][0]);
+    arma::cx_fvec vec_csi_a = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_c = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][1]);
+    arma::cx_fvec vec_csi_b = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_d = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    // Prepare UL beam matrix. Let Armadillo help handle the memory.
+    // The format here is identical to the input of equalizer.
+    // Note that the memory layout for Armadillo & AVX512 impl are different.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
+                               cfg_->BsAntNum(), sc_vec_len, false);
+    // The following vector view uses the same format as AVX512 memory layout.
+    // arma::cx_fvec vec_ul_beam(
+    //     (arma::cx_float*)ul_beam_ptr,
+    //     sc_vec_len * cfg_->SpatialStreamsNum() * cfg_->BsAntNum(),
+    //     false);
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
     // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
     //     [ c d ]      [c' d']   [-c  a]
     arma::cx_fcube cub_csi(cfg_->BsAntNum(), cfg_->SpatialStreamsNum(),
@@ -573,6 +586,15 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     cub_ul_beam.tube(0, 1) = -cub_csi.tube(0, 1) % cub_det;
     cub_ul_beam.tube(1, 0) = -cub_csi.tube(1, 0) % cub_det;
     cub_ul_beam.tube(1, 1) =  cub_csi.tube(0, 0) % cub_det;
+
+    // arma::cx_fvec ul_beam_a = cub_ul_beam.tube(0, 0);
+    // arma::cx_fvec ul_beam_b = cub_ul_beam.tube(0, 1);
+    // arma::cx_fvec ul_beam_c = cub_ul_beam.tube(1, 0);
+    // arma::cx_fvec ul_beam_d = cub_ul_beam.tube(1, 1);
+    // vec_ul_beam.subvec(0, sc_vec_len - 1) = ul_beam_a;
+    // vec_ul_beam.subvec(sc_vec_len, 2 * sc_vec_len - 1) = ul_beam_b;
+    // vec_ul_beam.subvec(2 * sc_vec_len, 3 * sc_vec_len - 1) = ul_beam_c;
+    // vec_ul_beam.subvec(3 * sc_vec_len, 4 * sc_vec_len - 1) = ul_beam_d;
 #endif
 
     duration_stat_->task_duration_[2] += GetTime::WorkerRdtsc() - start_tsc2;

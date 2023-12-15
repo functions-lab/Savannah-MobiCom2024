@@ -260,19 +260,6 @@ EventData DoDemul::Launch(size_t tag) {
     arma::cx_fcube cub_data(data_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
     // cub_data.print("cub_data");
 
-    // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
-    // for (size_t i = 0; i < max_sc_ite; ++i) {
-    //   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
-    //     ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id + i)]);
-    //   arma::cx_fmat mat_ul_beam(ul_beam_ptr,
-    //                             cfg_->UeAntNum(), cfg_->BsAntNum(), false);
-    //   cub_ul_beam.slice(i) = mat_ul_beam;
-    // }
-    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
-      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
-    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(),
-                               cfg_->BsAntNum(), max_sc_ite, false);
-
     size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
     duration_stat_equal_->task_duration_[1] +=
         start_equal_tsc1 - start_equal_tsc0;
@@ -289,25 +276,17 @@ EventData DoDemul::Launch(size_t tag) {
     // cub_equaled.print("cub_equaled");
 
 #ifdef __AVX512F__
-
-    // Prepare operands
-    arma::cx_frowvec vec_a_1_1 = cub_ul_beam.tube(0, 0);
-    arma::cx_frowvec vec_a_1_2 = cub_ul_beam.tube(0, 1);
-    arma::cx_frowvec vec_a_2_1 = cub_ul_beam.tube(1, 0);
-    arma::cx_frowvec vec_a_2_2 = cub_ul_beam.tube(1, 1);
     arma::cx_frowvec vec_b_1 = cub_data.tube(0, 0);
     arma::cx_frowvec vec_b_2 = cub_data.tube(1, 0);
     arma::cx_frowvec vec_c_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
     arma::cx_frowvec vec_c_2 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
 
-    const complex_float* ptr_a_1_1 =
-      reinterpret_cast<complex_float*>(vec_a_1_1.memptr());
-    const complex_float* ptr_a_1_2 =
-      reinterpret_cast<complex_float*>(vec_a_1_2.memptr());
-    const complex_float* ptr_a_2_1 =
-      reinterpret_cast<complex_float*>(vec_a_2_1.memptr());
-    const complex_float* ptr_a_2_2 =
-      reinterpret_cast<complex_float*>(vec_a_2_2.memptr());
+    complex_float* ul_beam_ptr = ul_beam_matrices_[frame_slot][0];
+    const complex_float* ptr_a_1_1 = ul_beam_ptr;
+    const complex_float* ptr_a_1_2 = ul_beam_ptr + max_sc_ite;
+    const complex_float* ptr_a_2_1 = ul_beam_ptr + 2 * max_sc_ite;
+    const complex_float* ptr_a_2_2 = ul_beam_ptr + 3 * max_sc_ite;
+
     const complex_float* ptr_b_1 =
       reinterpret_cast<complex_float*>(vec_b_1.memptr());
     const complex_float* ptr_b_2 =
@@ -339,6 +318,18 @@ EventData DoDemul::Launch(size_t tag) {
     cub_equaled.tube(0, 0) = vec_c_1;
     cub_equaled.tube(1, 0) = vec_c_2;
 #else
+    // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
+    // for (size_t i = 0; i < max_sc_ite; ++i) {
+    //   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+    //     ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id + i)]);
+    //   arma::cx_fmat mat_ul_beam(ul_beam_ptr,
+    //                             cfg_->UeAntNum(), cfg_->BsAntNum(), false);
+    //   cub_ul_beam.slice(i) = mat_ul_beam;
+    // }
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(),
+                               cfg_->BsAntNum(), max_sc_ite, false);
 
     // for (size_t i = 0; i < max_sc_ite; ++i) {
     //   cub_equaled.slice(i) = cub_ul_beam.slice(i) * cub_data.slice(i);
@@ -349,7 +340,6 @@ EventData DoDemul::Launch(size_t tag) {
     cub_equaled.tube(1, 0) =
       cub_ul_beam.tube(1, 0) % cub_data.tube(0, 0) +
       cub_ul_beam.tube(1, 1) % cub_data.tube(1, 0);
-
 #endif
 
     size_t start_equal_tsc2 = GetTime::WorkerRdtsc();
@@ -630,8 +620,6 @@ EventData DoDemul::Launch(size_t tag) {
           GetTime::WorkerRdtsc() - start_equal_tsc2;
     }
   } else {
-    size_t start_equal_tsc0 = GetTime::WorkerRdtsc();
-
     // Iterate through cache lines
     for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
       size_t start_equal_tsc0 = GetTime::WorkerRdtsc();
