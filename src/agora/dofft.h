@@ -91,9 +91,8 @@ class DoFFT : public Doer {
    * of the fully-transposed matrix, but laid out in memory in column-major
    * order.
    */
-  void PartialTranspose(complex_float* out_buf, size_t ant_id,
-                        SymbolType symbol_type,
-                        bool local_disable_partial_trans) const;
+  void FillOutputBuffer(complex_float* out_buf, size_t ant_id,
+                        SymbolType symbol_type) const;
 
  private:
   Table<complex_float>& data_buffer_;

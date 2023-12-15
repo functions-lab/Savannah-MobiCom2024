@@ -237,34 +237,6 @@ EventData DoDemul::Launch(size_t tag) {
     // Accelerate (vectorized computation) 2x2 antenna config
     size_t start_equal_tsc0 = GetTime::WorkerRdtsc();
 
-    // Step 0: Re-arrange data
-    complex_float* dst = data_gather_buffer_;
-    for (size_t i = 0; i < max_sc_ite; i++) {
-      const size_t partial_transpose_block_base =
-          ((base_sc_id + i) / kTransposeBlockSize) *
-          (kTransposeBlockSize * cfg_->BsAntNum());
-
-      // Populate data_gather_buffer as a row-major matrix with max_sc_ite rows
-      // and BsAntNum() columns
-
-      for (size_t ant_i = 0; ant_i < cfg_->BsAntNum(); ant_i++) {
-        *dst++ = kUsePartialTrans
-                    ? data_buf[partial_transpose_block_base +
-                              (ant_i * kTransposeBlockSize) +
-                              ((base_sc_id + i) % kTransposeBlockSize)]
-                    : data_buf[ant_i * cfg_->OfdmDataNum() + base_sc_id + i];
-      }
-    }
-    arma::cx_float* data_ptr =
-      (arma::cx_float*)(&data_gather_buffer_[base_sc_id]);
-    arma::cx_fcube cub_data(data_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
-    // cub_data.print("cub_data");
-
-    size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
-    duration_stat_equal_->task_duration_[1] +=
-        start_equal_tsc1 - start_equal_tsc0;
-
-    // Step 1: Equalization
     arma::cx_float* equal_ptr = nullptr;
     if (kExportConstellation) {
       equal_ptr = (arma::cx_float*)(&equal_buffer_[total_data_symbol_idx_ul]
@@ -276,8 +248,7 @@ EventData DoDemul::Launch(size_t tag) {
     // cub_equaled.print("cub_equaled");
 
 #ifdef __AVX512F__
-    arma::cx_frowvec vec_b_1 = cub_data.tube(0, 0);
-    arma::cx_frowvec vec_b_2 = cub_data.tube(1, 0);
+    // Step 0: Prepare pointers
     arma::cx_frowvec vec_c_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
     arma::cx_frowvec vec_c_2 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
 
@@ -287,15 +258,20 @@ EventData DoDemul::Launch(size_t tag) {
     const complex_float* ptr_a_2_1 = ul_beam_ptr + 2 * max_sc_ite;
     const complex_float* ptr_a_2_2 = ul_beam_ptr + 3 * max_sc_ite;
 
-    const complex_float* ptr_b_1 =
-      reinterpret_cast<complex_float*>(vec_b_1.memptr());
-    const complex_float* ptr_b_2 =
-      reinterpret_cast<complex_float*>(vec_b_2.memptr());
+    const complex_float* data_ptr = data_buf;
+    const complex_float* ptr_b_1 = data_ptr;
+    const complex_float* ptr_b_2 = data_ptr + max_sc_ite;
+
     complex_float* ptr_c_1 =
       reinterpret_cast<complex_float*>(vec_c_1.memptr());
     complex_float* ptr_c_2 =
       reinterpret_cast<complex_float*>(vec_c_2.memptr());
 
+    size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
+    duration_stat_equal_->task_duration_[1] +=
+        start_equal_tsc1 - start_equal_tsc0;
+
+    // Step 1: Equalization
     for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
       // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
       // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
@@ -318,6 +294,18 @@ EventData DoDemul::Launch(size_t tag) {
     cub_equaled.tube(0, 0) = vec_c_1;
     cub_equaled.tube(1, 0) = vec_c_2;
 #else
+    // Step 0: Re-arrange data
+    complex_float* dst = data_gather_buffer_;
+    for (size_t i = 0; i < max_sc_ite; i++) {
+      for (size_t ant_i = 0; ant_i < cfg_->BsAntNum(); ant_i++) {
+        *dst++ = data_buf[ant_i * cfg_->OfdmDataNum() + base_sc_id + i];
+      }
+    }
+    arma::cx_float* data_ptr =
+      (arma::cx_float*)(&data_gather_buffer_[base_sc_id]);
+    arma::cx_fcube cub_data(data_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
+
+    // cub_data.print("cub_data");
     // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
     // for (size_t i = 0; i < max_sc_ite; ++i) {
     //   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
@@ -331,6 +319,11 @@ EventData DoDemul::Launch(size_t tag) {
     arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(),
                                cfg_->BsAntNum(), max_sc_ite, false);
 
+    size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
+    duration_stat_equal_->task_duration_[1] +=
+        start_equal_tsc1 - start_equal_tsc0;
+
+    // Step 1: Equalization
     // for (size_t i = 0; i < max_sc_ite; ++i) {
     //   cub_equaled.slice(i) = cub_ul_beam.slice(i) * cub_data.slice(i);
     // }
