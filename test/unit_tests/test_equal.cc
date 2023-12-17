@@ -1119,6 +1119,42 @@ void equal_vec_2x2_complex(
 
     // Calc new phase shift
     if (symbol_idx_ul < cfg_->Frame().ClientUlPilotSymbols()) {
+#ifdef __AVX512F__
+      complex_float* ue_pilot_ptr =
+        reinterpret_cast<complex_float*>(cfg_->UeSpecificPilot()[0]);
+      complex_float *ue_pilot_ptr_0 = ue_pilot_ptr;
+      complex_float *ue_pilot_ptr_1 = ue_pilot_ptr + max_sc_ite;
+
+      arma::cx_frowvec vec_tube_equal_0 = cub_equaled.tube(0, 0);
+      arma::cx_frowvec vec_tube_equal_1 = cub_equaled.tube(1, 0);
+      complex_float *ptr_vec_tube_equal_0 =
+        reinterpret_cast<complex_float*>(vec_tube_equal_0.memptr());
+      complex_float *ptr_vec_tube_equal_1 =
+        reinterpret_cast<complex_float*>(vec_tube_equal_1.memptr());
+
+      __m512 sum_0 = _mm512_setzero_ps();
+      __m512 sum_1 = _mm512_setzero_ps();
+      for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+        __m512 ue_0 = _mm512_loadu_ps(ue_pilot_ptr_0+i);
+        __m512 eq_0 = _mm512_loadu_ps(ptr_vec_tube_equal_0+i);
+        __m512 temp = CommsLib::M512ComplexCf32Conj(ue_0);
+        temp = CommsLib::M512ComplexCf32Mult(temp, eq_0, false);
+        sum_0 = _mm512_add_ps(sum_0, temp);
+
+        __m512 ue_1 = _mm512_loadu_ps(ue_pilot_ptr_1+i);
+        __m512 eq_1 = _mm512_loadu_ps(ptr_vec_tube_equal_1+i);
+        temp = CommsLib::M512ComplexCf32Conj(ue_1);
+        temp = CommsLib::M512ComplexCf32Mult(temp, eq_1, false);
+        sum_1 = _mm512_add_ps(sum_1, temp);
+      }
+
+      std::complex<float>* phase_shift_ptr =
+        reinterpret_cast<std::complex<float>*>(
+          &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
+                                [symbol_idx_ul * cfg_->UeAntNum()]);
+      *phase_shift_ptr += CommsLib::M512ComplexCf32Sum(sum_0);
+      *(phase_shift_ptr+1) += CommsLib::M512ComplexCf32Sum(sum_1);
+#else
       arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
         &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
                               [symbol_idx_ul * cfg_->UeAntNum()]);
@@ -1129,51 +1165,15 @@ void equal_vec_2x2_complex(
 
       // if use fvec or fcolvec, then transpose mat_ue_pilot_data_ by
       // mat_ue_pilot_data_.row(0).st()
-      arma::cx_frowvec vec_tube_equal_0 =
-        cub_equaled(arma::span(0), arma::span(0), arma::span::all);
-      arma::cx_frowvec vec_tube_equal_1 =
-        cub_equaled(arma::span(1), arma::span(0), arma::span::all);
+      arma::cx_frowvec vec_tube_equal_0 = cub_equaled.tube(0, 0);
+      arma::cx_frowvec vec_tube_equal_1 = cub_equaled.tube(1, 0);
 
-#ifdef __AVX512F__
-      arma::cx_frowvec mat_ue_pilot_data_0 = mat_ue_pilot_data_.row(0);
-      arma::cx_frowvec mat_ue_pilot_data_1 = mat_ue_pilot_data_.row(1);
-      complex_float *ptr_mat_ue_pilot_data_0 =
-        reinterpret_cast<complex_float*>(mat_ue_pilot_data_0.memptr());
-      complex_float *ptr_mat_ue_pilot_data_1 =
-        reinterpret_cast<complex_float*>(mat_ue_pilot_data_1.memptr());
-      complex_float *ptr_vec_tube_equal_0 =
-        reinterpret_cast<complex_float*>(vec_tube_equal_0.memptr());
-      complex_float *ptr_vec_tube_equal_1 =
-        reinterpret_cast<complex_float*>(vec_tube_equal_1.memptr());
-      __m512 sum_0 = _mm512_setzero_ps();
-      __m512 sum_1 = _mm512_setzero_ps();
-      for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
-        __m512 ue_0 = _mm512_loadu_ps(ptr_mat_ue_pilot_data_0+i);
-        __m512 eq_0 = _mm512_loadu_ps(ptr_vec_tube_equal_0+i);
-
-        __m512 temp = CommsLib::M512ComplexCf32Conj(ue_0);
-        temp = CommsLib::M512ComplexCf32Mult(temp, eq_0, false);
-        sum_0 = _mm512_add_ps(sum_0, temp);
-
-
-        __m512 ue_1 = _mm512_loadu_ps(ptr_mat_ue_pilot_data_1+i);
-        __m512 eq_1 = _mm512_loadu_ps(ptr_vec_tube_equal_1+i);
-        temp = CommsLib::M512ComplexCf32Conj(ue_1);
-        temp = CommsLib::M512ComplexCf32Mult(temp, eq_1, false);
-        sum_1 = _mm512_add_ps(sum_1, temp);
-      }
-      std::complex<float> mat_phase_shift_0 = CommsLib::M512ComplexCf32Sum(sum_0);
-      std::complex<float> mat_phase_shift_1 = CommsLib::M512ComplexCf32Sum(sum_1);
-      mat_phase_shift.col(0).row(0) += (arma::cx_float)mat_phase_shift_0;
-      mat_phase_shift.col(0).row(1) += (arma::cx_float)mat_phase_shift_1;
-#else
       mat_phase_shift.col(0).row(0) += arma::sum(
         vec_tube_equal_0 % arma::conj(mat_ue_pilot_data_.row(0))
       );
       mat_phase_shift.col(0).row(1) += arma::sum(
         vec_tube_equal_1 % arma::conj(mat_ue_pilot_data_.row(1))
       );
-#endif
       // for (size_t i = 0; i < max_sc_ite; ++i) {
       //   arma::cx_fmat shift_sc =
       //     cub_equaled.slice(i) % arma::conj(mat_ue_pilot_data_.col(i));
@@ -1181,6 +1181,7 @@ void equal_vec_2x2_complex(
       //   mat_phase_shift += shift_sc;
       // }
       // sign should be able to optimize out but the result will be different
+#endif
     }
 
     // Calculate the unit phase shift based on the first subcarrier
