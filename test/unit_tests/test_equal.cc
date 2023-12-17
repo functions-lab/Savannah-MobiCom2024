@@ -1207,7 +1207,34 @@ void equal_vec_2x2_complex(
       arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
       arma::cx_fmat mat_phase_correct =
           arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
+
+#ifdef __AVX512F__
+      arma::cx_fvec vec_tube_equal_0 = cub_equaled.tube(0, 0);
+      arma::cx_fvec vec_tube_equal_1 = cub_equaled.tube(1, 0);
+
+      complex_float *ptr_vec_tube_equal_0 =
+        reinterpret_cast<complex_float*>(vec_tube_equal_0.memptr());
+      complex_float *ptr_vec_tube_equal_1 =
+        reinterpret_cast<complex_float*>(vec_tube_equal_1.memptr());
+
+      __m512 ph_corr_0 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(0, 0));
+      __m512 ph_corr_1 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(1, 0));
+
+      // CommsLib::PrintM512ComplexCf32(ph_corr_0);
+      // CommsLib::PrintM512ComplexCf32(ph_corr_1);
+      for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+        __m512 eq_0 = _mm512_loadu_ps(ptr_vec_tube_equal_0+i);
+        __m512 eq_1 = _mm512_loadu_ps(ptr_vec_tube_equal_1+i);
+        eq_0 = CommsLib::M512ComplexCf32Mult(eq_0, ph_corr_0, false);
+        eq_1 = CommsLib::M512ComplexCf32Mult(eq_1, ph_corr_1, false);
+        _mm512_storeu_ps(ptr_vec_tube_equal_0+i, eq_0);
+        _mm512_storeu_ps(ptr_vec_tube_equal_1+i, eq_1);
+      }
+      cub_equaled.tube(0, 0) = vec_tube_equal_0;
+      cub_equaled.tube(1, 0) = vec_tube_equal_1;
+#else
       cub_equaled.each_slice() %= mat_phase_correct;
+#endif
     }
   }
 }
