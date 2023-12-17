@@ -335,7 +335,6 @@ __m512 CommsLib::M512ComplexCf32Reciprocal(__m512 data) {
   __m512 numerator __attribute__((aligned(64)));
   __m512 res       __attribute__((aligned(64)));
 
-
   // TODO: Check here if the sign is inverted
   const __m512 neg = _mm512_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
                                     1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
@@ -407,6 +406,39 @@ bool CommsLib::M512ComplexCf32NearZeros(__m512 data, float threshold) {
 
   // float max = mm512_mask_reduce_max_ps(comp/*mask*/, sq);
   // return max < threshold;
+}
+#endif
+
+#ifdef __AVX512F__
+/**
+ * Perform complex conjugate of a vector of single precision (32 bit)
+ * floats using AVX-512.
+ * @param data: vector to conjugate
+ */
+__m512 CommsLib::M512ComplexCf32Conj(__m512 data) {
+  const __m512 neg =
+      _mm512_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0,
+                     -1.0, 1.0, -1.0, 1.0, -1.0);
+  __m512 conj = _mm512_mul_ps(data, neg);
+  return conj;
+}
+#endif
+
+#ifdef __AVX512F__
+/**
+ * Perform complex sum of a vector of single precision (32 bit)
+ * floats using AVX-512.
+ * @param data: vector to sum
+ */
+std::complex<float> CommsLib::M512ComplexCf32Sum(__m512 data) {
+  // Require that all data is aligned to 64 byte boundaries
+
+  const __mmask16 real_mask = 0b0101010101010101;
+  const __mmask16 imag_mask = 0b1010101010101010;
+  float real = _mm512_mask_reduce_add_ps(real_mask, data);
+  float imag = _mm512_mask_reduce_add_ps(imag_mask, data);
+
+  return std::complex<float>(real, imag);
 }
 #endif
 
