@@ -335,7 +335,6 @@ __m512 CommsLib::M512ComplexCf32Reciprocal(__m512 data) {
   __m512 numerator __attribute__((aligned(64)));
   __m512 res       __attribute__((aligned(64)));
 
-
   // TODO: Check here if the sign is inverted
   const __m512 neg = _mm512_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
                                     1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
@@ -407,6 +406,74 @@ bool CommsLib::M512ComplexCf32NearZeros(__m512 data, float threshold) {
 
   // float max = mm512_mask_reduce_max_ps(comp/*mask*/, sq);
   // return max < threshold;
+}
+#endif
+
+#ifdef __AVX512F__
+/**
+ * Perform complex conjugate of a vector of single precision (32 bit)
+ * floats using AVX-512.
+ * @param data: vector to conjugate
+ */
+__m512 CommsLib::M512ComplexCf32Conj(__m512 data) {
+  const __m512 neg =
+      _mm512_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0,
+                     -1.0, 1.0, -1.0, 1.0, -1.0);
+  __m512 conj = _mm512_mul_ps(data, neg);
+  return conj;
+}
+#endif
+
+#ifdef __AVX512F__
+/**
+ * Perform complex sum of a vector of single precision (32 bit)
+ * floats using AVX-512.
+ * @param data: vector to sum
+ */
+std::complex<float> CommsLib::M512ComplexCf32Sum(__m512 data) {
+  // Require that all data is aligned to 64 byte boundaries
+
+  const __mmask16 real_mask = 0b0101010101010101;
+  const __mmask16 imag_mask = 0b1010101010101010;
+  float real = _mm512_mask_reduce_add_ps(real_mask, data);
+  float imag = _mm512_mask_reduce_add_ps(imag_mask, data);
+
+  return std::complex<float>(real, imag);
+}
+#endif
+
+#ifdef __AVX512F__
+/**
+ * Broadcast complex single precision (32 bit) floats to all element of the
+ * register (duplicate 8 times) of AVX-512. Complex number version of
+ *    __m512 _mm512_set1_ps(float a);
+ * @param data: complex float number to broadcast
+ */
+__m512 CommsLib::M512ComplexCf32Set1(std::complex<float> data) {
+  __m512 real = _mm512_set1_ps(data.real());
+  __m512 imag = _mm512_set1_ps(data.imag());
+  __m512i reali = _mm512_castps_si512(real);
+  __m512i imagi = _mm512_castps_si512(imag);
+  __m512i resi = _mm512_mask_blend_epi32(0b1010101010101010, reali, imagi);
+  __m512 res = _mm512_castsi512_ps(resi);
+  return res;
+}
+#endif
+
+#ifdef __AVX512F__
+/**
+ * Print AVX-512 register as complex single precision (32 bit) floats.
+ * @param data: complex float number to print
+ */
+void CommsLib::PrintM512ComplexCf32(__m512 data) {
+  std::complex<float> content[8];
+  _mm512_storeu_ps(reinterpret_cast<complex_float*>(content), data);
+
+  for (int i = 0; i < 8; i++) {
+      std::cout << "Complex Pair " << i + 1
+                << ": Real = " << content[i].real()
+                << ", Imaginary = " << content[i].imag() << std::endl;
+  }
 }
 #endif
 
