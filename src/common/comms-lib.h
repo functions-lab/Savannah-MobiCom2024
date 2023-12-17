@@ -196,6 +196,8 @@ class CommsLib {
   static bool M512ComplexCf32NearZeros(__m512 data, float threshold);
   static __m512 M512ComplexCf32Conj(__m512 data);
   static std::complex<float> M512ComplexCf32Sum(__m512 data);
+  static __m512 M512ComplexCf32Set1(std::complex<float> data);
+  static void PrintM512ComplexCf32(__m512 data);
 #endif
 };
 
