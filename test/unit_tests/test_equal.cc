@@ -954,6 +954,8 @@ void equal_vec_2x2_complex(
   RtAssert(kExportConstellation == true,
            "Set kExportConstellation to evaluate the correctness "
            " (export equal_buffer_)");
+  RtAssert(kUsePartialTrans == false,
+           "The test case of 2x2 MIMO is not compatible with kUsePartialTrans");
 
   // ---------------------------------------------------------------------------
   // Class definition of DoDemul
@@ -1010,44 +1012,6 @@ void equal_vec_2x2_complex(
       std::min(cfg_->DemulBlockSize(), cfg_->OfdmDataNum() - base_sc_id);
   assert(max_sc_ite % kSCsPerCacheline == 0);
 
-  // Step 0: Re-arrange data
-  complex_float* dst = data_gather_buffer_;
-  for (size_t i = 0; i < max_sc_ite; i++) {
-    const size_t partial_transpose_block_base =
-        ((base_sc_id + i) / kTransposeBlockSize) *
-        (kTransposeBlockSize * cfg_->BsAntNum());
-
-    // Populate data_gather_buffer as a row-major matrix with max_sc_ite rows
-    // and BsAntNum() columns
-
-    for (size_t ant_i = 0; ant_i < cfg_->BsAntNum(); ant_i++) {
-      *dst++ = kUsePartialTrans
-                  ? data_buf[partial_transpose_block_base +
-                             (ant_i * kTransposeBlockSize) +
-                             ((base_sc_id + i) % kTransposeBlockSize)]
-                  : data_buf[ant_i * cfg_->OfdmDataNum() + base_sc_id + i];
-    }
-  }
-  arma::cx_float* data_ptr =
-    (arma::cx_float*)(&data_gather_buffer_[base_sc_id]);
-  arma::cx_fcube cub_data(data_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
-  // cub_data.print("cub_data");
-
-  // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
-  // for (size_t i = 0; i < max_sc_ite; ++i) {
-  //   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
-  //     ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id + i)]);
-  //   arma::cx_fmat mat_ul_beam(ul_beam_ptr,
-  //                             cfg_->UeAntNum(), cfg_->BsAntNum(), false);
-  //   cub_ul_beam.slice(i) = mat_ul_beam;
-  // }
-  arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
-      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
-  arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(), cfg_->BsAntNum(),
-                             max_sc_ite, false);
-  // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(),
-  //                            max_sc_ite, arma::fill::zeros);
-
   // Step 1: Equalization
   arma::cx_float* equal_ptr = nullptr;
   if (kExportConstellation) {
@@ -1060,33 +1024,26 @@ void equal_vec_2x2_complex(
   // cub_equaled.print("cub_equaled");
 
 #ifdef __AVX512F__
-  // Prepare operands
-  arma::cx_frowvec vec_a_1_1 = cub_ul_beam.tube(0, 0);
-  arma::cx_frowvec vec_a_1_2 = cub_ul_beam.tube(0, 1);
-  arma::cx_frowvec vec_a_2_1 = cub_ul_beam.tube(1, 0);
-  arma::cx_frowvec vec_a_2_2 = cub_ul_beam.tube(1, 1);
-  arma::cx_frowvec vec_b_1 = cub_data.tube(0, 0);
-  arma::cx_frowvec vec_b_2 = cub_data.tube(1, 0);
+  // Step 0: Prepare pointers
   arma::cx_frowvec vec_c_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
   arma::cx_frowvec vec_c_2 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
 
-  const complex_float* ptr_a_1_1 =
-    reinterpret_cast<complex_float*>(vec_a_1_1.memptr());
-  const complex_float* ptr_a_1_2 =
-    reinterpret_cast<complex_float*>(vec_a_1_2.memptr());
-  const complex_float* ptr_a_2_1 =
-    reinterpret_cast<complex_float*>(vec_a_2_1.memptr());
-  const complex_float* ptr_a_2_2 =
-    reinterpret_cast<complex_float*>(vec_a_2_2.memptr());
-  const complex_float* ptr_b_1 =
-    reinterpret_cast<complex_float*>(vec_b_1.memptr());
-  const complex_float* ptr_b_2 =
-    reinterpret_cast<complex_float*>(vec_b_2.memptr());
+  complex_float* ul_beam_ptr = ul_beam_matrices_[frame_slot][0];
+  const complex_float* ptr_a_1_1 = ul_beam_ptr;
+  const complex_float* ptr_a_1_2 = ul_beam_ptr + max_sc_ite;
+  const complex_float* ptr_a_2_1 = ul_beam_ptr + 2 * max_sc_ite;
+  const complex_float* ptr_a_2_2 = ul_beam_ptr + 3 * max_sc_ite;
+
+  const complex_float* data_ptr = data_buf;
+  const complex_float* ptr_b_1 = data_ptr;
+  const complex_float* ptr_b_2 = data_ptr + max_sc_ite;
+
   complex_float* ptr_c_1 =
     reinterpret_cast<complex_float*>(vec_c_1.memptr());
   complex_float* ptr_c_2 =
     reinterpret_cast<complex_float*>(vec_c_2.memptr());
 
+  // Step 1: Equalization
   for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
     // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
     // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
@@ -1111,6 +1068,29 @@ void equal_vec_2x2_complex(
   cub_equaled.tube(0, 0) = vec_c_1;
   cub_equaled.tube(1, 0) = vec_c_2;
 #else
+  // Step 0: Re-arrange data
+  arma::cx_float* data_ptr = (arma::cx_float*)data_buf;
+  arma::cx_fvec vec_data_0(data_ptr, max_sc_ite, false);
+  arma::cx_fvec vec_data_1(data_ptr+max_sc_ite, max_sc_ite, false);
+  arma::cx_fcube cub_data(cfg_->BsAntNum(), 1, max_sc_ite);
+  cub_data.tube(0, 0) = vec_data_0;
+  cub_data.tube(1, 0) = vec_data_1;
+
+  // cub_data.print("cub_data");
+  // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
+  // for (size_t i = 0; i < max_sc_ite; ++i) {
+  //   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+  //     ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id + i)]);
+  //   arma::cx_fmat mat_ul_beam(ul_beam_ptr,
+  //                             cfg_->UeAntNum(), cfg_->BsAntNum(), false);
+  //   cub_ul_beam.slice(i) = mat_ul_beam;
+  // }
+  arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+  arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(), cfg_->BsAntNum(),
+                             max_sc_ite, false);
+
+  // Step 1: Equalization
   // for (size_t i = 0; i < max_sc_ite; ++i) {
   //   cub_equaled.slice(i) = cub_ul_beam.slice(i) * cub_data.slice(i);
   // }
@@ -1592,9 +1572,41 @@ void equal_test(
   }
 
   if (cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2) {
+#ifdef __AVX512F__
+    // Simulate FFT output: Rearrange beam matrix
+    size_t frame_slot = frame_id_ % kFrameWnd;
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][0]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(),
+                               cfg_->BsAntNum(), cfg_->DemulBlockSize(), false);
+
+    PtrGrid<kFrameWnd, kMaxDataSCs, complex_float> ul_beam_matrices_seq_2x2;
+    ul_beam_matrices_seq_2x2.RandAllocCxFloat(
+      cfg_->BsAntNum() * cfg_->SpatialStreamsNum());
+    arma::cx_float* ul_beam_seq_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_seq_2x2[frame_slot][0]);
+    arma::cx_fvec vec_ul_beam_seq_0(ul_beam_seq_ptr,
+                                    cfg_->DemulBlockSize(), false);
+    arma::cx_fvec vec_ul_beam_seq_1(ul_beam_seq_ptr+cfg_->DemulBlockSize(),
+                                    cfg_->DemulBlockSize(), false);
+    arma::cx_fvec vec_ul_beam_seq_2(ul_beam_seq_ptr+2*cfg_->DemulBlockSize(),
+                                    cfg_->DemulBlockSize(), false);
+    arma::cx_fvec vec_ul_beam_seq_3(ul_beam_seq_ptr+3*cfg_->DemulBlockSize(),
+                                    cfg_->DemulBlockSize(), false);
+
+    vec_ul_beam_seq_0 = cub_ul_beam.tube(0, 0);
+    vec_ul_beam_seq_1 = cub_ul_beam.tube(0, 1);
+    vec_ul_beam_seq_2 = cub_ul_beam.tube(1, 0);
+    vec_ul_beam_seq_3 = cub_ul_beam.tube(1, 1);
+
+    equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
+      ue_spec_pilot_buffer_, ul_beam_matrices_seq_2x2, frame_id_, symbol_id_,
+      base_sc_id_);
+#else
     equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
       ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
       base_sc_id_);
+#endif
   }
 
   if (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4) {
