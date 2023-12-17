@@ -1025,8 +1025,12 @@ void equal_vec_2x2_complex(
 
 #ifdef __AVX512F__
   // Step 0: Prepare pointers
-  arma::cx_frowvec vec_c_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
-  arma::cx_frowvec vec_c_2 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_equal_0 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_equal_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  complex_float* ptr_equal_0 =
+    reinterpret_cast<complex_float*>(vec_equal_0.memptr());
+  complex_float* ptr_equal_1 =
+    reinterpret_cast<complex_float*>(vec_equal_1.memptr());
 
   complex_float* ul_beam_ptr = ul_beam_matrices_[frame_slot][0];
   const complex_float* ptr_a_1_1 = ul_beam_ptr;
@@ -1038,15 +1042,13 @@ void equal_vec_2x2_complex(
   const complex_float* ptr_b_1 = data_ptr;
   const complex_float* ptr_b_2 = data_ptr + max_sc_ite;
 
-  complex_float* ptr_c_1 =
-    reinterpret_cast<complex_float*>(vec_c_1.memptr());
-  complex_float* ptr_c_2 =
-    reinterpret_cast<complex_float*>(vec_c_2.memptr());
+  complex_float* ptr_c_1 = ptr_equal_0;
+  complex_float* ptr_c_2 = ptr_equal_1;
 
   // Step 1: Equalization
   for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
-    // vec_c_1 = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
-    // vec_c_2 = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
+    // vec_equal_0 (vec_c_1) = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
+    // vec_equal_1 (vec_c_2) = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
     __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
     __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
 
@@ -1064,9 +1066,7 @@ void equal_vec_2x2_complex(
     c_2 = _mm512_add_ps(c_2, temp);
     _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
   }
-
-  cub_equaled.tube(0, 0) = vec_c_1;
-  cub_equaled.tube(1, 0) = vec_c_2;
+  // delay storing to cub_equaled to avoid frequent avx512-armadillo conversion
 #else
   // Step 0: Re-arrange data
   arma::cx_float* data_ptr = (arma::cx_float*)data_buf;
@@ -1122,27 +1122,20 @@ void equal_vec_2x2_complex(
 #ifdef __AVX512F__
       complex_float* ue_pilot_ptr =
         reinterpret_cast<complex_float*>(cfg_->UeSpecificPilot()[0]);
-      complex_float *ue_pilot_ptr_0 = ue_pilot_ptr;
-      complex_float *ue_pilot_ptr_1 = ue_pilot_ptr + max_sc_ite;
-
-      arma::cx_frowvec vec_tube_equal_0 = cub_equaled.tube(0, 0);
-      arma::cx_frowvec vec_tube_equal_1 = cub_equaled.tube(1, 0);
-      complex_float *ptr_vec_tube_equal_0 =
-        reinterpret_cast<complex_float*>(vec_tube_equal_0.memptr());
-      complex_float *ptr_vec_tube_equal_1 =
-        reinterpret_cast<complex_float*>(vec_tube_equal_1.memptr());
+      complex_float *ptr_ue_pilot_0 = ue_pilot_ptr;
+      complex_float *ptr_ue_pilot_1 = ue_pilot_ptr + max_sc_ite;
 
       __m512 sum_0 = _mm512_setzero_ps();
       __m512 sum_1 = _mm512_setzero_ps();
       for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
-        __m512 ue_0 = _mm512_loadu_ps(ue_pilot_ptr_0+i);
-        __m512 eq_0 = _mm512_loadu_ps(ptr_vec_tube_equal_0+i);
+        __m512 ue_0 = _mm512_loadu_ps(ptr_ue_pilot_0+i);
+        __m512 eq_0 = _mm512_loadu_ps(ptr_equal_0+i);
         __m512 temp = CommsLib::M512ComplexCf32Conj(ue_0);
         temp = CommsLib::M512ComplexCf32Mult(temp, eq_0, false);
         sum_0 = _mm512_add_ps(sum_0, temp);
 
-        __m512 ue_1 = _mm512_loadu_ps(ue_pilot_ptr_1+i);
-        __m512 eq_1 = _mm512_loadu_ps(ptr_vec_tube_equal_1+i);
+        __m512 ue_1 = _mm512_loadu_ps(ptr_ue_pilot_1+i);
+        __m512 eq_1 = _mm512_loadu_ps(ptr_equal_1+i);
         temp = CommsLib::M512ComplexCf32Conj(ue_1);
         temp = CommsLib::M512ComplexCf32Mult(temp, eq_1, false);
         sum_1 = _mm512_add_ps(sum_1, temp);
@@ -1209,34 +1202,30 @@ void equal_vec_2x2_complex(
           arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
 
 #ifdef __AVX512F__
-      arma::cx_fvec vec_tube_equal_0 = cub_equaled.tube(0, 0);
-      arma::cx_fvec vec_tube_equal_1 = cub_equaled.tube(1, 0);
-
-      complex_float *ptr_vec_tube_equal_0 =
-        reinterpret_cast<complex_float*>(vec_tube_equal_0.memptr());
-      complex_float *ptr_vec_tube_equal_1 =
-        reinterpret_cast<complex_float*>(vec_tube_equal_1.memptr());
-
       __m512 ph_corr_0 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(0, 0));
       __m512 ph_corr_1 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(1, 0));
 
       // CommsLib::PrintM512ComplexCf32(ph_corr_0);
       // CommsLib::PrintM512ComplexCf32(ph_corr_1);
       for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
-        __m512 eq_0 = _mm512_loadu_ps(ptr_vec_tube_equal_0+i);
-        __m512 eq_1 = _mm512_loadu_ps(ptr_vec_tube_equal_1+i);
+        __m512 eq_0 = _mm512_loadu_ps(ptr_equal_0+i);
+        __m512 eq_1 = _mm512_loadu_ps(ptr_equal_1+i);
         eq_0 = CommsLib::M512ComplexCf32Mult(eq_0, ph_corr_0, false);
         eq_1 = CommsLib::M512ComplexCf32Mult(eq_1, ph_corr_1, false);
-        _mm512_storeu_ps(ptr_vec_tube_equal_0+i, eq_0);
-        _mm512_storeu_ps(ptr_vec_tube_equal_1+i, eq_1);
+        _mm512_storeu_ps(ptr_equal_0+i, eq_0);
+        _mm512_storeu_ps(ptr_equal_1+i, eq_1);
       }
-      cub_equaled.tube(0, 0) = vec_tube_equal_0;
-      cub_equaled.tube(1, 0) = vec_tube_equal_1;
 #else
       cub_equaled.each_slice() %= mat_phase_correct;
 #endif
     }
   }
+
+#ifdef __AVX512F__
+  // store back to Armadillo matrix
+  cub_equaled.tube(0, 0) = vec_equal_0;
+  cub_equaled.tube(1, 0) = vec_equal_1;
+#endif
 }
 
 /*
@@ -1383,8 +1372,8 @@ void equal_vec_4x4_complex(
   arma::cx_frowvec vec_b_2 = cub_data.tube(1, 0);
   arma::cx_frowvec vec_b_3 = cub_data.tube(2, 0);
   arma::cx_frowvec vec_b_4 = cub_data.tube(3, 0);
-  arma::cx_frowvec vec_c_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
-  arma::cx_frowvec vec_c_2 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_equal_0 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_equal_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
   arma::cx_frowvec vec_c_3 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
   arma::cx_frowvec vec_c_4 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
   const complex_float* ptr_a_1_1 =
@@ -1428,9 +1417,9 @@ void equal_vec_4x4_complex(
   const complex_float* ptr_b_4 =
     reinterpret_cast<complex_float*>(vec_b_4.memptr());
   complex_float* ptr_c_1 =
-    reinterpret_cast<complex_float*>(vec_c_1.memptr());
+    reinterpret_cast<complex_float*>(vec_equal_0.memptr());
   complex_float* ptr_c_2 =
-    reinterpret_cast<complex_float*>(vec_c_2.memptr());
+    reinterpret_cast<complex_float*>(vec_equal_1.memptr());
   complex_float* ptr_c_3 =
     reinterpret_cast<complex_float*>(vec_c_3.memptr());
   complex_float* ptr_c_4 =
@@ -1493,8 +1482,8 @@ void equal_vec_4x4_complex(
     _mm512_storeu_ps(ptr_c_4+sc_idx, c_4);
   }
 
-  cub_equaled.tube(0, 0) = vec_c_1;
-  cub_equaled.tube(1, 0) = vec_c_2;
+  cub_equaled.tube(0, 0) = vec_equal_0;
+  cub_equaled.tube(1, 0) = vec_equal_1;
   cub_equaled.tube(2, 0) = vec_c_3;
   cub_equaled.tube(3, 0) = vec_c_4;
 #else
