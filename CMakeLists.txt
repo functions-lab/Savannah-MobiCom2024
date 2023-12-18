@@ -100,7 +100,7 @@ endif()
 #Settable values
 message(STATUS "\n-- ----- Configuration values -----")
 message(STATUS "DEBUG:            ${DEBUG}")
-set(RADIO_TYPE SIMULATION CACHE STRING "RADIO_TYPE defaulting to 'SIMULATION', valid types are SIMULATION / SOAPY_IRIS / PURE_UHD")
+set(RADIO_TYPE SIMULATION CACHE STRING "RADIO_TYPE defaulting to 'SIMULATION', valid types are SIMULATION / SOAPY_IRIS / PURE_UHD / DPDK")
 message(STATUS "RADIO_TYPE:       ${RADIO_TYPE}")
 set(LOG_LEVEL "info" CACHE STRING "Console logging level (none/error/warn/info/frame/subframe/trace)") 
 message(STATUS "LOG_LEVEL:        ${LOG_LEVEL}")
@@ -114,12 +114,13 @@ set(ENABLE_MAT_LOG False CACHE BOOL "ENABLE_MAT_LOG set to enable matrix log out
 message(STATUS "ENABLE_MAT_LOG:   ${ENABLE_MAT_LOG}")
 set(USE_AVX2_ENCODER False CACHE BOOL "Use Agora's AVX2 encoder instead of FlexRAN's AVX512 encoder")
 message(STATUS "USE_AVX2_ENCODER: ${USE_AVX2_ENCODER}")
-set(ENABLE_DPDK False CACHE BOOL "ENABLE_DPDK set to true to enable dpdk support")
-message(STATUS "ENABLE_DPDK:      ${ENABLE_DPDK}")
 set(ENABLE_HDF5 False CACHE BOOL "ENABLE_HDF5 defaulting to 'False'")
 message(STATUS "ENABLE_HDF5:      ${ENABLE_HDF5}")
 set(TIME_EXCLUSIVE False CACHE BOOL "TIME_EXCLUSIVE defaulting to 'False'")
 message(STATUS "TIME_EXCLUSIVE:   ${TIME_EXCLUSIVE}")
+
+set(LDPC_TYPE FlexRAN CACHE STRING "LDPC_TYPE defaulting to 'FlexRAN', valid types are FlexRAN / ACC100")
+message(STATUS "LDPC Mode:        ${LDPC_TYPE}")
 message(STATUS "--------------------------------\n--")
 
 if(RADIO_TYPE STREQUAL SOAPY_IRIS)
@@ -131,8 +132,18 @@ elseif(RADIO_TYPE STREQUAL SOAPY_UHD)
 elseif(RADIO_TYPE STREQUAL PURE_UHD)
   message(STATUS "Enabled Pure UHD radio type")
   add_definitions(-DUSE_PURE_UHD)
+elseif(RADIO_TYPE STREQUAL DPDK)
+  message(STATUS "Enabled DPDK radio type")
+  add_definitions(-DUSE_DPDK)
 else()
   message(STATUS "Enabled SIMULATION radio type")
+endif()
+
+if(LDPC_TYPE STREQUAL ACC100)
+  message(STATUS "Enabled HW Intel ACC100 LDPC Decoding (DPDK is mandatory)")
+  add_definitions(-DUSE_ACC100)
+else()
+  message(STATUS "Enabled SW Intel FlexRAN LDPC Decoding")
 endif()
 
 #External Libraries / Depends
@@ -145,7 +156,11 @@ find_package(BLAS REQUIRED)
 include_directories(${BLAS_INCLUDE_DIR})
 
 # DPDK
-if(ENABLE_DPDK)
+if((RADIO_TYPE STREQUAL DPDK) AND (LDPC_TYPE STREQUAL ACC100))
+  message(WARNING "Both radio and LDPC are using DPDK")
+  message(FATAL_ERROR "Current implementation does not support dual-usage of DPDK (radio & ACC100)")
+endif()
+if((RADIO_TYPE STREQUAL DPDK) OR (LDPC_TYPE STREQUAL ACC100))
   find_library(DPDK_LIB dpdk)
   if(NOT DPDK_LIB)
     #If cmake doesn't find DPDK than have pkg-config attempt the same
@@ -166,7 +181,7 @@ if(ENABLE_DPDK)
   endif()
   include_directories(${DPDK_INCLUDE_DIRS})
 
-  add_definitions(-DUSE_DPDK)
+  # add_definitions(-DUSE_DPDK)
   if (ISA_AVX512)
     message(STATUS "Enabling AVX-512 memcpy implementation for dpdk")
     add_definitions(-DRTE_MEMCPY_AVX512)
@@ -315,6 +330,13 @@ find_package(gflags REQUIRED)
 message(VERBOSE "  gflags: Includes ${GFLAGS_INCLUDE_DIR} Libraries: ${GFLAGS_LIBRARIES}")
 include_directories(${GFLAGS_INCLUDE_DIR})
 
+#Decoder
+if(LDPC_TYPE STREQUAL ACC100)
+  set(DECODER_SOURCES_AGORA src/agora/dodecode_acc.cc)
+elseif(LDPC_TYPE STREQUAL FlexRAN)
+  set(DECODER_SOURCES_AGORA src/agora/dodecode.cc)
+endif()
+
 #Flexran
 include_directories(
   ${FLEXRAN_FEC_LIB_DIR}/install/lib_ldpc_decoder_5gnr
@@ -460,7 +482,8 @@ set(SHARED_TXRX_SOURCES
   src/agora/txrx/workers/txrx_worker.cc)
 add_library(shared_txrx_sources_lib OBJECT ${SHARED_TXRX_SOURCES})
 
-if(${USE_DPDK})
+# if(${USE_DPDK})
+if(RADIO_TYPE STREQUAL DPDK)
   add_definitions(-DUSE_DPDK)
   set(AGORA_SOURCES
     src/common/dpdk_transport.cc
@@ -479,7 +502,7 @@ set(AGORA_SOURCES ${AGORA_SOURCES}
   src/agora/dobeamweights.cc
   src/agora/dodemul.cc
   src/agora/doprecode.cc
-  src/agora/dodecode.cc
+  ${DECODER_SOURCES_AGORA}
   src/mac/mac_thread_basestation.cc
   src/agora/txrx/packet_txrx_sim.cc
   src/agora/txrx/workers/txrx_worker_sim.cc)

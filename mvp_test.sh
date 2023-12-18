@@ -36,7 +36,8 @@ function display_help {
     echo "  -g, --datagen  - Generate the data from the config file"
     echo "  -x, --execute  - Run the basestation"
     echo "  -u, --user     - Run the user"
-#     echo "  -v, --valgrind - Run the project with vlagrind"
+    echo "  -sx, --sudo-execute  - Run the basestation with sudo"
+    echo "  -su, --sudo-user     - Run the user with sudo"
     echo "  -r, --read     - Read the log of the latest test run"
     echo "  -c, --clean    - Clean the project"
     echo "  -h, --help     - Display this help message"
@@ -86,11 +87,6 @@ function exe_user {
     # script -q -c "$user --conf_file $config" $logfile
 }
 
-# function valgrind_exe {
-#     echo "Running the project with valgrind..."
-#     script -q -c "valgrind --leak-check=full $exe --conf_file $config" $logfile
-# }
-
 # Function to read the log
 function read_log {
     # Find the latest log file
@@ -114,6 +110,21 @@ function clean_project {
     make clean
     cd ..
 }
+
+function exe_bs_sudo {
+    echo "Running the basestation with sudo..."
+    # sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} $exe --conf_file=$config
+    script -q -c "sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} $exe --conf_file $config" $logfile
+}
+
+function exe_user_sudo {
+    echo "Running the user with sudo..."
+    sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} $user --conf_file=$config \
+          --num_threads=2       \
+          --core_offset=10      \
+          --enable_slow_start=0
+}
+
 
 ################
 # Handle Inputs
@@ -145,9 +156,13 @@ case "$1" in
     "-u" | "--user")
         exe_user
         ;;
-#     "-v" | "--valgrind")
-#         valgrind_exe
-#         ;;
+
+    "-sx")
+        exe_bs_sudo
+        ;;
+    "-su")
+        exe_user_sudo
+        ;;
     "-r" | "--read")
         read_log
         ;;
