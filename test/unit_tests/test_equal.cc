@@ -4,6 +4,7 @@
 #include "config.h"
 #include "dodemul.h"
 #include "gettime.h"
+#include "comms-lib.h"
 
 // set static constexpr bool kExportConstellation = true; at symbol.h to enable
 // this unit test. otherwise, the correctness check is not reliable.
@@ -56,9 +57,9 @@ void equal_org(
 
   // Intermediate buffers for equalized data
   complex_float* equaled_buffer_temp_;
-  complex_float* equaled_buffer_temp_transposed_;
+  // complex_float* equaled_buffer_temp_transposed_;
   arma::cx_fmat ue_pilot_data_;
-  int ue_num_simd256_;
+  // int ue_num_simd256_;
 
   // For efficient phase shift calibration
   static arma::fmat theta_mat;
@@ -81,10 +82,10 @@ void equal_org(
       static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
           Agora_memory::Alignment_t::kAlign64,
           cfg_->DemulBlockSize() * kMaxUEs * sizeof(complex_float)));
-  equaled_buffer_temp_transposed_ =
-      static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
-          Agora_memory::Alignment_t::kAlign64,
-          cfg_->DemulBlockSize() * kMaxUEs * sizeof(complex_float)));
+  // equaled_buffer_temp_transposed_ =
+  //     static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //         Agora_memory::Alignment_t::kAlign64,
+  //         cfg_->DemulBlockSize() * kMaxUEs * sizeof(complex_float)));
 
   // phase offset calibration data
   arma::cx_float* ue_pilot_ptr =
@@ -123,8 +124,8 @@ void equal_org(
   // ---------------------------------------------------------------------------
 
   const size_t symbol_idx_ul = cfg_->Frame().GetULSymbolIdx(symbol_id);
-  const size_t data_symbol_idx_ul =
-      symbol_idx_ul - cfg_->Frame().ClientUlPilotSymbols();
+  // const size_t data_symbol_idx_ul =
+  //     symbol_idx_ul - cfg_->Frame().ClientUlPilotSymbols();
   const size_t total_data_symbol_idx_ul =
       cfg_->GetTotalDataSymbolIdxUl(frame_id, symbol_idx_ul);
   const complex_float* data_buf = data_buffer_[total_data_symbol_idx_ul];
@@ -327,9 +328,9 @@ void equal_ifcond(
 
   // Intermediate buffers for equalized data
   complex_float* equaled_buffer_temp_;
-  complex_float* equaled_buffer_temp_transposed_;
+  // complex_float* equaled_buffer_temp_transposed_;
   arma::cx_fmat ue_pilot_data_;
-  int ue_num_simd256_;
+  // int ue_num_simd256_;
 
   // For efficient phase shift calibration
   static arma::fmat theta_mat;
@@ -352,10 +353,10 @@ void equal_ifcond(
       static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
           Agora_memory::Alignment_t::kAlign64,
           cfg_->DemulBlockSize() * kMaxUEs * sizeof(complex_float)));
-  equaled_buffer_temp_transposed_ =
-      static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
-          Agora_memory::Alignment_t::kAlign64,
-          cfg_->DemulBlockSize() * kMaxUEs * sizeof(complex_float)));
+  // equaled_buffer_temp_transposed_ =
+  //     static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
+  //         Agora_memory::Alignment_t::kAlign64,
+  //         cfg_->DemulBlockSize() * kMaxUEs * sizeof(complex_float)));
 
   // phase offset calibration data
   arma::cx_float* ue_pilot_ptr =
@@ -394,8 +395,8 @@ void equal_ifcond(
   // ---------------------------------------------------------------------------
 
   const size_t symbol_idx_ul = cfg_->Frame().GetULSymbolIdx(symbol_id);
-  const size_t data_symbol_idx_ul =
-      symbol_idx_ul - cfg_->Frame().ClientUlPilotSymbols();
+  // const size_t data_symbol_idx_ul =
+  //     symbol_idx_ul - cfg_->Frame().ClientUlPilotSymbols();
   const size_t total_data_symbol_idx_ul =
       cfg_->GetTotalDataSymbolIdxUl(frame_id, symbol_idx_ul);
   const complex_float* data_buf = data_buffer_[total_data_symbol_idx_ul];
@@ -662,13 +663,29 @@ void equal_vec_1x1_complex(
   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
       ul_beam_matrices_[frame_slot][0]); // pick the first element
 
-  // assuming cfg->BsAntNum() == 1, reducing a dimension
-  arma::cx_fvec vec_data(data_ptr, max_sc_ite, false);
   arma::cx_fvec vec_ul_beam(max_sc_ite); // init empty vec
   for (size_t i = 0; i < max_sc_ite; ++i) {
     vec_ul_beam(i) = ul_beam_ptr[cfg_->GetBeamScId(base_sc_id + i)];
   }
+
+#ifdef __AVX512F__
+  const complex_float* ptr_data =
+    reinterpret_cast<const complex_float*>(data_ptr);
+  const complex_float* ptr_ul_beam =
+    reinterpret_cast<const complex_float*>(vec_ul_beam.memptr());
+  complex_float* ptr_equaled =
+    reinterpret_cast<complex_float*>(equal_ptr);
+  for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+    __m512 reg_data = _mm512_loadu_ps(ptr_data+i);
+    __m512 reg_ul_beam = _mm512_loadu_ps(ptr_ul_beam+i);
+    __m512 reg_equaled =
+      CommsLib::M512ComplexCf32Mult(reg_data, reg_ul_beam, false);
+    _mm512_storeu_ps(ptr_equaled+i, reg_equaled);
+  }
+#else
+  arma::cx_fvec vec_data(data_ptr, max_sc_ite, false);
   vec_equaled = vec_ul_beam % vec_data;
+#endif
 
   // Step 2: Phase shift calibration
 
@@ -937,6 +954,8 @@ void equal_vec_2x2_complex(
   RtAssert(kExportConstellation == true,
            "Set kExportConstellation to evaluate the correctness "
            " (export equal_buffer_)");
+  RtAssert(kUsePartialTrans == false,
+           "The test case of 2x2 MIMO is not compatible with kUsePartialTrans");
 
   // ---------------------------------------------------------------------------
   // Class definition of DoDemul
@@ -993,29 +1012,71 @@ void equal_vec_2x2_complex(
       std::min(cfg_->DemulBlockSize(), cfg_->OfdmDataNum() - base_sc_id);
   assert(max_sc_ite % kSCsPerCacheline == 0);
 
-  // Step 0: Re-arrange data
-  complex_float* dst = data_gather_buffer_;
-  for (size_t i = 0; i < max_sc_ite; i++) {
-    const size_t partial_transpose_block_base =
-        ((base_sc_id + i) / kTransposeBlockSize) *
-        (kTransposeBlockSize * cfg_->BsAntNum());
-
-    // Populate data_gather_buffer as a row-major matrix with max_sc_ite rows
-    // and BsAntNum() columns
-
-    for (size_t ant_i = 0; ant_i < cfg_->BsAntNum(); ant_i++) {
-      *dst++ = kUsePartialTrans
-                  ? data_buf[partial_transpose_block_base +
-                             (ant_i * kTransposeBlockSize) +
-                             ((base_sc_id + i) % kTransposeBlockSize)]
-                  : data_buf[ant_i * cfg_->OfdmDataNum() + base_sc_id + i];
-    }
+  // Step 1: Equalization
+  arma::cx_float* equal_ptr = nullptr;
+  if (kExportConstellation) {
+    equal_ptr = (arma::cx_float*)(&equal_buffer_[total_data_symbol_idx_ul]
+                                                [base_sc_id]);
+  } else {
+    equal_ptr = (arma::cx_float*)(&equaled_buffer_temp_[0]);
   }
-  arma::cx_float* data_ptr =
-    (arma::cx_float*)(&data_gather_buffer_[base_sc_id]);
-  arma::cx_fcube cub_data(data_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
-  // cub_data.print("cub_data");
+  arma::cx_fcube cub_equaled(equal_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
+  // cub_equaled.print("cub_equaled");
 
+#ifdef __AVX512F__
+  // Step 0: Prepare pointers
+  arma::cx_frowvec vec_equal_0 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_equal_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  complex_float* ptr_equal_0 =
+    reinterpret_cast<complex_float*>(vec_equal_0.memptr());
+  complex_float* ptr_equal_1 =
+    reinterpret_cast<complex_float*>(vec_equal_1.memptr());
+
+  complex_float* ul_beam_ptr = ul_beam_matrices_[frame_slot][0];
+  const complex_float* ptr_a_1_1 = ul_beam_ptr;
+  const complex_float* ptr_a_1_2 = ul_beam_ptr + max_sc_ite;
+  const complex_float* ptr_a_2_1 = ul_beam_ptr + 2 * max_sc_ite;
+  const complex_float* ptr_a_2_2 = ul_beam_ptr + 3 * max_sc_ite;
+
+  const complex_float* data_ptr = data_buf;
+  const complex_float* ptr_b_1 = data_ptr;
+  const complex_float* ptr_b_2 = data_ptr + max_sc_ite;
+
+  complex_float* ptr_c_1 = ptr_equal_0;
+  complex_float* ptr_c_2 = ptr_equal_1;
+
+  // Step 1: Equalization
+  for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
+    // vec_equal_0 (vec_c_1) = vec_a_1_1 % vec_b_1 + vec_a_1_2 % vec_b_2;
+    // vec_equal_1 (vec_c_2) = vec_a_2_1 % vec_b_1 + vec_a_2_2 % vec_b_2;
+    __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
+    __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
+
+    __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+    __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+    __m512 c_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+    __m512 temp = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+    c_1 = _mm512_add_ps(c_1, temp);
+    _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+
+    __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+    __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+    __m512 c_2 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+    temp = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+    c_2 = _mm512_add_ps(c_2, temp);
+    _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
+  }
+  // delay storing to cub_equaled to avoid frequent avx512-armadillo conversion
+#else
+  // Step 0: Re-arrange data
+  arma::cx_float* data_ptr = (arma::cx_float*)data_buf;
+  arma::cx_fvec vec_data_0(data_ptr, max_sc_ite, false);
+  arma::cx_fvec vec_data_1(data_ptr+max_sc_ite, max_sc_ite, false);
+  arma::cx_fcube cub_data(cfg_->BsAntNum(), 1, max_sc_ite);
+  cub_data.tube(0, 0) = vec_data_0;
+  cub_data.tube(1, 0) = vec_data_1;
+
+  // cub_data.print("cub_data");
   // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
   // for (size_t i = 0; i < max_sc_ite; ++i) {
   //   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
@@ -1028,20 +1089,8 @@ void equal_vec_2x2_complex(
       ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
   arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(), cfg_->BsAntNum(),
                              max_sc_ite, false);
-  // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(),
-  //                            max_sc_ite, arma::fill::zeros);
 
   // Step 1: Equalization
-  arma::cx_float* equal_ptr = nullptr;
-  if (kExportConstellation) {
-    equal_ptr = (arma::cx_float*)(&equal_buffer_[total_data_symbol_idx_ul]
-                                                [base_sc_id]);
-  } else {
-    equal_ptr = (arma::cx_float*)(&equaled_buffer_temp_[0]);
-  }
-  arma::cx_fcube cub_equaled(equal_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
-  // cub_equaled.print("cub_equaled");
-
   // for (size_t i = 0; i < max_sc_ite; ++i) {
   //   cub_equaled.slice(i) = cub_ul_beam.slice(i) * cub_data.slice(i);
   // }
@@ -1051,6 +1100,7 @@ void equal_vec_2x2_complex(
   cub_equaled.tube(1, 0) =
     cub_ul_beam.tube(1, 0) % cub_data.tube(0, 0) +
     cub_ul_beam.tube(1, 1) % cub_data.tube(1, 0);
+#endif
 
   // Step 2: Phase shift calibration
 
@@ -1069,6 +1119,35 @@ void equal_vec_2x2_complex(
 
     // Calc new phase shift
     if (symbol_idx_ul < cfg_->Frame().ClientUlPilotSymbols()) {
+#ifdef __AVX512F__
+      complex_float* ue_pilot_ptr =
+        reinterpret_cast<complex_float*>(cfg_->UeSpecificPilot()[0]);
+      complex_float *ptr_ue_pilot_0 = ue_pilot_ptr;
+      complex_float *ptr_ue_pilot_1 = ue_pilot_ptr + max_sc_ite;
+
+      __m512 sum_0 = _mm512_setzero_ps();
+      __m512 sum_1 = _mm512_setzero_ps();
+      for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+        __m512 ue_0 = _mm512_loadu_ps(ptr_ue_pilot_0+i);
+        __m512 eq_0 = _mm512_loadu_ps(ptr_equal_0+i);
+        __m512 temp = CommsLib::M512ComplexCf32Conj(ue_0);
+        temp = CommsLib::M512ComplexCf32Mult(temp, eq_0, false);
+        sum_0 = _mm512_add_ps(sum_0, temp);
+
+        __m512 ue_1 = _mm512_loadu_ps(ptr_ue_pilot_1+i);
+        __m512 eq_1 = _mm512_loadu_ps(ptr_equal_1+i);
+        temp = CommsLib::M512ComplexCf32Conj(ue_1);
+        temp = CommsLib::M512ComplexCf32Mult(temp, eq_1, false);
+        sum_1 = _mm512_add_ps(sum_1, temp);
+      }
+
+      std::complex<float>* phase_shift_ptr =
+        reinterpret_cast<std::complex<float>*>(
+          &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
+                                [symbol_idx_ul * cfg_->UeAntNum()]);
+      *phase_shift_ptr += CommsLib::M512ComplexCf32Sum(sum_0);
+      *(phase_shift_ptr+1) += CommsLib::M512ComplexCf32Sum(sum_1);
+#else
       arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
         &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
                               [symbol_idx_ul * cfg_->UeAntNum()]);
@@ -1079,15 +1158,13 @@ void equal_vec_2x2_complex(
 
       // if use fvec or fcolvec, then transpose mat_ue_pilot_data_ by
       // mat_ue_pilot_data_.row(0).st()
-      arma::cx_frowvec vec_tube_equal_0 =
-        cub_equaled(arma::span(0), arma::span(0), arma::span::all);
-      arma::cx_frowvec vec_tube_equal_1 =
-        cub_equaled(arma::span(1), arma::span(0), arma::span::all);
+      arma::cx_frowvec vec_tube_equal_0 = cub_equaled.tube(0, 0);
+      arma::cx_frowvec vec_tube_equal_1 = cub_equaled.tube(1, 0);
 
-      mat_phase_shift.col(0).row(0) += sum(
+      mat_phase_shift.col(0).row(0) += arma::sum(
         vec_tube_equal_0 % arma::conj(mat_ue_pilot_data_.row(0))
       );
-      mat_phase_shift.col(0).row(1) += sum(
+      mat_phase_shift.col(0).row(1) += arma::sum(
         vec_tube_equal_1 % arma::conj(mat_ue_pilot_data_.row(1))
       );
       // for (size_t i = 0; i < max_sc_ite; ++i) {
@@ -1097,6 +1174,7 @@ void equal_vec_2x2_complex(
       //   mat_phase_shift += shift_sc;
       // }
       // sign should be able to optimize out but the result will be different
+#endif
     }
 
     // Calculate the unit phase shift based on the first subcarrier
@@ -1122,9 +1200,32 @@ void equal_vec_2x2_complex(
       arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
       arma::cx_fmat mat_phase_correct =
           arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
+
+#ifdef __AVX512F__
+      __m512 ph_corr_0 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(0, 0));
+      __m512 ph_corr_1 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(1, 0));
+
+      // CommsLib::PrintM512ComplexCf32(ph_corr_0);
+      // CommsLib::PrintM512ComplexCf32(ph_corr_1);
+      for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+        __m512 eq_0 = _mm512_loadu_ps(ptr_equal_0+i);
+        __m512 eq_1 = _mm512_loadu_ps(ptr_equal_1+i);
+        eq_0 = CommsLib::M512ComplexCf32Mult(eq_0, ph_corr_0, false);
+        eq_1 = CommsLib::M512ComplexCf32Mult(eq_1, ph_corr_1, false);
+        _mm512_storeu_ps(ptr_equal_0+i, eq_0);
+        _mm512_storeu_ps(ptr_equal_1+i, eq_1);
+      }
+#else
       cub_equaled.each_slice() %= mat_phase_correct;
+#endif
     }
   }
+
+#ifdef __AVX512F__
+  // store back to Armadillo matrix
+  cub_equaled.tube(0, 0) = vec_equal_0;
+  cub_equaled.tube(1, 0) = vec_equal_1;
+#endif
 }
 
 /*
@@ -1250,6 +1351,142 @@ void equal_vec_4x4_complex(
   arma::cx_fcube cub_equaled(equal_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
   // cub_equaled.print("cub_equaled");
 
+#ifdef __AVX512F__
+  arma::cx_frowvec vec_a_1_1 = cub_ul_beam.tube(0, 0);
+  arma::cx_frowvec vec_a_1_2 = cub_ul_beam.tube(0, 1);
+  arma::cx_frowvec vec_a_1_3 = cub_ul_beam.tube(0, 2);
+  arma::cx_frowvec vec_a_1_4 = cub_ul_beam.tube(0, 3);
+  arma::cx_frowvec vec_a_2_1 = cub_ul_beam.tube(1, 0);
+  arma::cx_frowvec vec_a_2_2 = cub_ul_beam.tube(1, 1);
+  arma::cx_frowvec vec_a_2_3 = cub_ul_beam.tube(1, 2);
+  arma::cx_frowvec vec_a_2_4 = cub_ul_beam.tube(1, 3);
+  arma::cx_frowvec vec_a_3_1 = cub_ul_beam.tube(2, 0);
+  arma::cx_frowvec vec_a_3_2 = cub_ul_beam.tube(2, 1);
+  arma::cx_frowvec vec_a_3_3 = cub_ul_beam.tube(2, 2);
+  arma::cx_frowvec vec_a_3_4 = cub_ul_beam.tube(2, 3);
+  arma::cx_frowvec vec_a_4_1 = cub_ul_beam.tube(3, 0);
+  arma::cx_frowvec vec_a_4_2 = cub_ul_beam.tube(3, 1);
+  arma::cx_frowvec vec_a_4_3 = cub_ul_beam.tube(3, 2);
+  arma::cx_frowvec vec_a_4_4 = cub_ul_beam.tube(3, 3);
+  arma::cx_frowvec vec_b_1 = cub_data.tube(0, 0);
+  arma::cx_frowvec vec_b_2 = cub_data.tube(1, 0);
+  arma::cx_frowvec vec_b_3 = cub_data.tube(2, 0);
+  arma::cx_frowvec vec_b_4 = cub_data.tube(3, 0);
+  arma::cx_frowvec vec_equal_0 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_equal_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_c_3 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  arma::cx_frowvec vec_c_4 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+  const complex_float* ptr_a_1_1 =
+    reinterpret_cast<complex_float*>(vec_a_1_1.memptr());
+  const complex_float* ptr_a_1_2 =
+    reinterpret_cast<complex_float*>(vec_a_1_2.memptr());
+  const complex_float* ptr_a_1_3 =
+    reinterpret_cast<complex_float*>(vec_a_1_3.memptr());
+  const complex_float* ptr_a_1_4 =
+    reinterpret_cast<complex_float*>(vec_a_1_4.memptr());
+  const complex_float* ptr_a_2_1 =
+    reinterpret_cast<complex_float*>(vec_a_2_1.memptr());
+  const complex_float* ptr_a_2_2 =
+    reinterpret_cast<complex_float*>(vec_a_2_2.memptr());
+  const complex_float* ptr_a_2_3 =
+    reinterpret_cast<complex_float*>(vec_a_2_3.memptr());
+  const complex_float* ptr_a_2_4 =
+    reinterpret_cast<complex_float*>(vec_a_2_4.memptr());
+  const complex_float* ptr_a_3_1 =
+    reinterpret_cast<complex_float*>(vec_a_3_1.memptr());
+  const complex_float* ptr_a_3_2 =
+    reinterpret_cast<complex_float*>(vec_a_3_2.memptr());
+  const complex_float* ptr_a_3_3 =
+    reinterpret_cast<complex_float*>(vec_a_3_3.memptr());
+  const complex_float* ptr_a_3_4 = 
+    reinterpret_cast<complex_float*>(vec_a_3_4.memptr());
+  const complex_float* ptr_a_4_1 =
+    reinterpret_cast<complex_float*>(vec_a_4_1.memptr());
+  const complex_float* ptr_a_4_2 =
+    reinterpret_cast<complex_float*>(vec_a_4_2.memptr());
+  const complex_float* ptr_a_4_3 =
+    reinterpret_cast<complex_float*>(vec_a_4_3.memptr());
+  const complex_float* ptr_a_4_4 =
+    reinterpret_cast<complex_float*>(vec_a_4_4.memptr());
+  const complex_float* ptr_b_1 =
+    reinterpret_cast<complex_float*>(vec_b_1.memptr());
+  const complex_float* ptr_b_2 =
+    reinterpret_cast<complex_float*>(vec_b_2.memptr());
+  const complex_float* ptr_b_3 =
+    reinterpret_cast<complex_float*>(vec_b_3.memptr());
+  const complex_float* ptr_b_4 =
+    reinterpret_cast<complex_float*>(vec_b_4.memptr());
+  complex_float* ptr_c_1 =
+    reinterpret_cast<complex_float*>(vec_equal_0.memptr());
+  complex_float* ptr_c_2 =
+    reinterpret_cast<complex_float*>(vec_equal_1.memptr());
+  complex_float* ptr_c_3 =
+    reinterpret_cast<complex_float*>(vec_c_3.memptr());
+  complex_float* ptr_c_4 =
+    reinterpret_cast<complex_float*>(vec_c_4.memptr());
+
+  // Each AVX512 register can hold 
+  //   16 floats = 8 complex floats = 1 kSCsPerCacheline
+  for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
+    __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+    __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+    __m512 a_1_3 = _mm512_loadu_ps(ptr_a_1_3+sc_idx);
+    __m512 a_1_4 = _mm512_loadu_ps(ptr_a_1_4+sc_idx);
+    __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+    __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+    __m512 a_2_3 = _mm512_loadu_ps(ptr_a_2_3+sc_idx);
+    __m512 a_2_4 = _mm512_loadu_ps(ptr_a_2_4+sc_idx);
+    __m512 a_3_1 = _mm512_loadu_ps(ptr_a_3_1+sc_idx);
+    __m512 a_3_2 = _mm512_loadu_ps(ptr_a_3_2+sc_idx);
+    __m512 a_3_3 = _mm512_loadu_ps(ptr_a_3_3+sc_idx);
+    __m512 a_3_4 = _mm512_loadu_ps(ptr_a_3_4+sc_idx);
+    __m512 a_4_1 = _mm512_loadu_ps(ptr_a_4_1+sc_idx);
+    __m512 a_4_2 = _mm512_loadu_ps(ptr_a_4_2+sc_idx);
+    __m512 a_4_3 = _mm512_loadu_ps(ptr_a_4_3+sc_idx);
+    __m512 a_4_4 = _mm512_loadu_ps(ptr_a_4_4+sc_idx);
+    __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
+    __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
+    __m512 b_3 = _mm512_loadu_ps(ptr_b_3+sc_idx);
+    __m512 b_4 = _mm512_loadu_ps(ptr_b_4+sc_idx);
+    __m512 temp_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+    __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+    __m512 temp_3 = CommsLib::M512ComplexCf32Mult(a_1_3, b_3, false);
+    __m512 temp_4 = CommsLib::M512ComplexCf32Mult(a_1_4, b_4, false);
+    temp_1 = _mm512_add_ps(temp_1, temp_2);
+    temp_3 = _mm512_add_ps(temp_3, temp_4);
+    __m512 c_1 = _mm512_add_ps(temp_1, temp_3);
+    temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+    temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+    temp_3 = CommsLib::M512ComplexCf32Mult(a_2_3, b_3, false);
+    temp_4 = CommsLib::M512ComplexCf32Mult(a_2_4, b_4, false);
+    temp_1 = _mm512_add_ps(temp_1, temp_2);
+    temp_3 = _mm512_add_ps(temp_3, temp_4);
+    __m512 c_2 = _mm512_add_ps(temp_1, temp_3);
+    temp_1 = CommsLib::M512ComplexCf32Mult(a_3_1, b_1, false);
+    temp_2 = CommsLib::M512ComplexCf32Mult(a_3_2, b_2, false);
+    temp_3 = CommsLib::M512ComplexCf32Mult(a_3_3, b_3, false);
+    temp_4 = CommsLib::M512ComplexCf32Mult(a_3_4, b_4, false);
+    temp_1 = _mm512_add_ps(temp_1, temp_2);
+    temp_3 = _mm512_add_ps(temp_3, temp_4);
+    __m512 c_3 = _mm512_add_ps(temp_1, temp_3);
+    temp_1 = CommsLib::M512ComplexCf32Mult(a_4_1, b_1, false);
+    temp_2 = CommsLib::M512ComplexCf32Mult(a_4_2, b_2, false);
+    temp_3 = CommsLib::M512ComplexCf32Mult(a_4_3, b_3, false);
+    temp_4 = CommsLib::M512ComplexCf32Mult(a_4_4, b_4, false);
+    temp_1 = _mm512_add_ps(temp_1, temp_2);
+    temp_3 = _mm512_add_ps(temp_3, temp_4);
+    __m512 c_4 = _mm512_add_ps(temp_1, temp_3);
+    _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+    _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
+    _mm512_storeu_ps(ptr_c_3+sc_idx, c_3);
+    _mm512_storeu_ps(ptr_c_4+sc_idx, c_4);
+  }
+
+  cub_equaled.tube(0, 0) = vec_equal_0;
+  cub_equaled.tube(1, 0) = vec_equal_1;
+  cub_equaled.tube(2, 0) = vec_c_3;
+  cub_equaled.tube(3, 0) = vec_c_4;
+#else
   // for (size_t i = 0; i < max_sc_ite; ++i) {
   //   cub_equaled.slice(i) = cub_ul_beam.slice(i) * cub_data.slice(i);
   // }
@@ -1273,6 +1510,7 @@ void equal_vec_4x4_complex(
     cub_ul_beam.tube(3, 1) % cub_data.tube(1, 0) +
     cub_ul_beam.tube(3, 2) % cub_data.tube(2, 0) +
     cub_ul_beam.tube(3, 3) % cub_data.tube(3, 0);
+#endif
 
   // Step 2: Phase shift calibration
 
@@ -1371,18 +1609,63 @@ void equal_test(
     Table<complex_float>& ue_spec_pilot_buffer_,
     PtrGrid<kFrameWnd, kMaxDataSCs, complex_float>& ul_beam_matrices_,
     size_t frame_id_, size_t symbol_id_, size_t base_sc_id_) {
-  // equal_vec_1x1_complex(cfg_, data_buffer_, equal_buffer_,
-  //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-  //   base_sc_id_);
-  // equal_vec_1x1_real(cfg_, data_buffer_, equal_buffer_,
-  //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-  //   base_sc_id_);
-  // equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
-  //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-  //   base_sc_id_);
-  equal_vec_4x4_complex(cfg_, data_buffer_, equal_buffer_,
-    ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
-    base_sc_id_);
+
+  RtAssert(cfg_->BsAntNum() == cfg_->UeAntNum(),
+           "Only support square MIMO matrix!");
+  
+  if (cfg_->BsAntNum() == 1 && cfg_->UeAntNum() == 1) {
+    equal_vec_1x1_complex(cfg_, data_buffer_, equal_buffer_,
+      ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+      base_sc_id_);
+    // equal_vec_1x1_real(cfg_, data_buffer_, equal_buffer_,
+    //   ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+    //   base_sc_id_);
+  }
+
+  if (cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2) {
+#ifdef __AVX512F__
+    // Simulate FFT output: Rearrange beam matrix
+    size_t frame_slot = frame_id_ % kFrameWnd;
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][0]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(),
+                               cfg_->BsAntNum(), cfg_->DemulBlockSize(), false);
+
+    PtrGrid<kFrameWnd, kMaxDataSCs, complex_float> ul_beam_matrices_seq_2x2;
+    ul_beam_matrices_seq_2x2.RandAllocCxFloat(
+      cfg_->BsAntNum() * cfg_->SpatialStreamsNum());
+    arma::cx_float* ul_beam_seq_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_seq_2x2[frame_slot][0]);
+    arma::cx_fvec vec_ul_beam_seq_0(ul_beam_seq_ptr,
+                                    cfg_->DemulBlockSize(), false);
+    arma::cx_fvec vec_ul_beam_seq_1(ul_beam_seq_ptr+cfg_->DemulBlockSize(),
+                                    cfg_->DemulBlockSize(), false);
+    arma::cx_fvec vec_ul_beam_seq_2(ul_beam_seq_ptr+2*cfg_->DemulBlockSize(),
+                                    cfg_->DemulBlockSize(), false);
+    arma::cx_fvec vec_ul_beam_seq_3(ul_beam_seq_ptr+3*cfg_->DemulBlockSize(),
+                                    cfg_->DemulBlockSize(), false);
+
+    vec_ul_beam_seq_0 = cub_ul_beam.tube(0, 0);
+    vec_ul_beam_seq_1 = cub_ul_beam.tube(0, 1);
+    vec_ul_beam_seq_2 = cub_ul_beam.tube(1, 0);
+    vec_ul_beam_seq_3 = cub_ul_beam.tube(1, 1);
+
+    equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
+      ue_spec_pilot_buffer_, ul_beam_matrices_seq_2x2, frame_id_, symbol_id_,
+      base_sc_id_);
+#else
+    equal_vec_2x2_complex(cfg_, data_buffer_, equal_buffer_,
+      ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+      base_sc_id_);
+#endif
+  }
+
+  if (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4) {
+    equal_vec_4x4_complex(cfg_, data_buffer_, equal_buffer_,
+      ue_spec_pilot_buffer_, ul_beam_matrices_, frame_id_, symbol_id_,
+      base_sc_id_);
+  }
+
 }
 
 /******************************************************************************/
@@ -1729,7 +2012,13 @@ TEST(TestEqual, CorrectnessSingle) {
   // the functions individually, starting from 4th symbol the phase tracking
   // values are not calculated properly.
   // 2x2 case: symbol_id = 4
-  size_t frame_id = 0, symbol_id = 4, base_sc_id = 0;
+  RtAssert((cfg_->BsAntNum() == 1 && cfg_->UeAntNum() == 1) || 
+           (cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2) ||
+           (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4),
+           "Correctness is only guaranteed in special case of antenna"
+           " 1x1/2x2/4x4!");
+  size_t symbol_id = cfg_->Frame().NumPilotSyms() + 1; // SISO: 3, 2x2: 4
+  size_t frame_id = 0, base_sc_id = 0;
 
   printf("--------------------------------------------------\n");
   equal_org(cfg_.get(), data_buffer_, equal_buffer_,
@@ -1768,9 +2057,11 @@ TEST(TestEqual, CorrectnessSingle) {
 
   // Check if they are the same instance
   EXPECT_FALSE(&equal_buffer_ == &equal_buffer_test1_);
-  EXPECT_TRUE(equal_buffer_ == equal_buffer_test1_);
   EXPECT_FALSE(&equal_buffer_ == &equal_buffer_test2_);
+  EXPECT_FALSE(&equal_buffer_test1_ == &equal_buffer_test2_);
+  EXPECT_TRUE(equal_buffer_ == equal_buffer_test1_);
   EXPECT_TRUE(equal_buffer_ == equal_buffer_test2_);
+  EXPECT_TRUE(equal_buffer_test1_ == equal_buffer_test2_);
 }
 
 TEST(TestEqual, CorrectnessLoop) {
