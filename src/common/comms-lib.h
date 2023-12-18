@@ -192,6 +192,12 @@ class CommsLib {
   static __m256 M256ComplexCf32Mult(__m256 data1, __m256 data2, bool conj);
 #ifdef __AVX512F__
   static __m512 M512ComplexCf32Mult(__m512 data1, __m512 data2, bool conj);
+  static __m512 M512ComplexCf32Reciprocal(__m512 data);
+  static bool M512ComplexCf32NearZeros(__m512 data, float threshold);
+  static __m512 M512ComplexCf32Conj(__m512 data);
+  static std::complex<float> M512ComplexCf32Sum(__m512 data);
+  static __m512 M512ComplexCf32Set1(std::complex<float> data);
+  static void PrintM512ComplexCf32(__m512 data);
 #endif
 };
 

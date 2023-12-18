@@ -211,7 +211,7 @@ EventData DoFFT::Launch(size_t tag) {
       }
     }
 #endif
-    PartialTranspose(csi_buffers_[frame_slot][pilot_symbol_id], ant_id,
+    FillOutputBuffer(csi_buffers_[frame_slot][pilot_symbol_id], ant_id,
                      SymbolType::kPilot);
 
     // Expand partial CSI from freq-orth pilot to full CSI per UE
@@ -241,7 +241,7 @@ EventData DoFFT::Launch(size_t tag) {
       }
     }
   } else if (sym_type == SymbolType::kUL) {
-    PartialTranspose(cfg_->GetDataBuf(data_buffer_, frame_id, symbol_id),
+    FillOutputBuffer(cfg_->GetDataBuf(data_buffer_, frame_id, symbol_id),
                      ant_id, SymbolType::kUL);
   } else if (sym_type == SymbolType::kCalUL) {
     // Only process uplink for antennas that also do downlink in this frame
@@ -256,7 +256,7 @@ EventData DoFFT::Launch(size_t tag) {
       complex_float* calib_ul_ptr =
           &calib_ul_buffer_[cal_index][ant_id * cfg_->OfdmDataNum()];
 
-      PartialTranspose(calib_ul_ptr, ant_id, sym_type);
+      FillOutputBuffer(calib_ul_ptr, ant_id, sym_type);
 #if !defined(TIME_EXCLUSIVE)
       phy_stats_->UpdateCalibPilotSnr(cal_index, 1, ant_id, fft_inout_);
 #endif
@@ -277,7 +277,7 @@ EventData DoFFT::Launch(size_t tag) {
 
       complex_float* calib_dl_ptr =
           &calib_dl_buffer_[cal_index][pilot_tx_ant * cfg_->OfdmDataNum()];
-      PartialTranspose(calib_dl_ptr, pilot_tx_ant, sym_type);
+      FillOutputBuffer(calib_dl_ptr, pilot_tx_ant, sym_type);
 #if !defined(TIME_EXCLUSIVE)
       phy_stats_->UpdateCalibPilotSnr(cal_index, 0, pilot_tx_ant, fft_inout_);
 #endif
@@ -304,8 +304,17 @@ EventData DoFFT::Launch(size_t tag) {
                    gen_tag_t::FrmSym(pkt->frame_id_, pkt->symbol_id_).tag_);
 }
 
-void DoFFT::PartialTranspose(complex_float* out_buf, size_t ant_id,
+void DoFFT::FillOutputBuffer(complex_float* out_buf, size_t ant_id,
                              SymbolType symbol_type) const {
+  bool partial_transpose = kUsePartialTrans;
+  // For special case of 2x2 MIMO, disable partial transpose to store desired
+  // data orders: for each (antenna, ue) pair, store subcarriers continuously
+  // This reduces the data gathering time for CSI estimation.
+  if (cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2 &&
+      (symbol_type == SymbolType::kPilot || symbol_type == SymbolType::kUL)) {
+    partial_transpose = false;
+  }
+
   // We have OfdmDataNum() % kTransposeBlockSize == 0
   const size_t num_sc_blocks = cfg_->OfdmDataNum() / kTransposeBlockSize;
 
@@ -323,7 +332,7 @@ void DoFFT::PartialTranspose(complex_float* out_buf, size_t ant_id,
           (symbol_type == SymbolType::kCalUL)) {
         dst = &out_buf[sc_idx];
       } else {
-        dst = kUsePartialTrans
+        dst = partial_transpose
                   ? &out_buf[sc_block_base_offset +
                              (ant_id * kTransposeBlockSize) + sc_j]
                   : &out_buf[(cfg_->OfdmDataNum() * ant_id) + sc_j +

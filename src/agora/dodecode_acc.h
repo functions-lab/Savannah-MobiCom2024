@@ -5,39 +5,11 @@
 
 #ifdef USE_ACC100
 
-# ifndef DODECODE_ACC_H_
+#ifndef DODECODE_ACC_H_
 #define DODECODE_ACC_H_
-
-#include <cstdint>
-#include <memory>
-
-#include "config.h"
-#include "doer.h"
-#include "memory_manage.h"
-#include "message.h"
-#include "phy_stats.h"
-#include "scrambler.h"
-#include "stats.h"
-
-#include "rte_lcore.h"
-#include "rte_eal.h"
-#include "rte_mbuf.h"
-#include "rte_mempool.h"
-#include "rte_malloc.h"
-
 
 #include <gflags/gflags.h>
 #include <immintrin.h>
-
-#include <bitset>
-#include <chrono>
-#include <fstream>
-#include <iostream>
-#include <random>
-
-
-#include "memory_manage.h"
-
 #include <netinet/ether.h>
 #include <rte_byteorder.h>
 #include <rte_cycles.h>
@@ -54,12 +26,33 @@
 #include <rte_udp.h>
 #include <unistd.h>
 
-#define NB_MBUF          8192
-#define MBUF_CACHE_SIZE  256
-#define RTE_MBUF_DEFAULT_DATAROOM 2048  // This should be adjusted based on your needs
-#define TEST_SUCCESS    0
-#define TEST_FAILED     -1
-#define TEST_SKIPPED    1
+#include <bitset>
+#include <chrono>
+#include <cstdint>
+#include <fstream>
+#include <iostream>
+#include <memory>
+#include <random>
+
+#include "config.h"
+#include "doer.h"
+#include "memory_manage.h"
+#include "message.h"
+#include "phy_stats.h"
+#include "rte_eal.h"
+#include "rte_lcore.h"
+#include "rte_malloc.h"
+#include "rte_mbuf.h"
+#include "rte_mempool.h"
+#include "scrambler.h"
+#include "stats.h"
+
+#define NB_MBUF 8192
+#define MBUF_CACHE_SIZE 256
+#define RTE_MBUF_DEFAULT_DATAROOM 2048  // adjust based on needs
+#define TEST_SUCCESS 0
+#define TEST_FAILED -1
+#define TEST_SKIPPED 1
 #define MAX_QUEUES RTE_MAX_LCORE
 #define OPS_CACHE_SIZE 256U
 #define OPS_POOL_SIZE_MIN 511U /* 0.5K per queue */
@@ -68,19 +61,19 @@
 #define MAX_BURST 512U
 #define SYNC_START 1
 
-class DoDecode_ACC: public Doer {
+class DoDecode_ACC : public Doer {
  public:
-  DoDecode_ACC(Config* in_config, int in_tid,
-           PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers,
-           PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& decoded_buffers,
-           PhyStats* in_phy_stats, Stats* in_stats_manager);
+  DoDecode_ACC(
+      Config* in_config, int in_tid,
+      PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers,
+      PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& decoded_buffers,
+      PhyStats* in_phy_stats, Stats* in_stats_manager);
   ~DoDecode_ACC() override;
 
   EventData Launch(size_t tag) override;
-  static int allocate_buffers_on_socket(struct rte_bbdev_op_data **buffers, const int len,
-		const int socket);
-  static inline bool check_bit(uint32_t bitmap, uint32_t bitmask)
-  {
+  static int allocate_buffers_on_socket(struct rte_bbdev_op_data** buffers,
+                                        const int len, const int socket);
+  static inline bool check_bit(uint32_t bitmap, uint32_t bitmask) {
     return bitmap & bitmask;
   }
 
@@ -100,28 +93,27 @@ class DoDecode_ACC: public Doer {
   uint16_t num_ops = 2047;
   uint16_t burst_sz = 1;
 
-  struct rte_mempool *ops_mp;
+  struct rte_mempool* ops_mp;
   struct rte_mempool* in_mbuf_pool;
   struct rte_mempool* out_mbuf_pool;
-  struct rte_mempool* bbdev_op_pool; 
+  struct rte_mempool* bbdev_op_pool;
 
-  struct rte_mbuf *in_mbuf;
-  struct rte_mbuf *out_mbuf;
+  struct rte_mbuf* in_mbuf;
+  struct rte_mbuf* out_mbuf;
 
-  struct rte_bbdev_dec_op *ref_dec_op[1];
-  struct rte_bbdev_dec_op *ops_deq[1];
+  struct rte_bbdev_dec_op* ref_dec_op[1];
+  struct rte_bbdev_dec_op* ops_deq[1];
 
-  struct rte_bbdev_op_data **inputs;
-  struct rte_bbdev_op_data **hard_outputs;
+  struct rte_bbdev_op_data** inputs;
+  struct rte_bbdev_op_data** hard_outputs;
 
-  rte_mbuf *input_pkts_burst[54];
-  rte_mbuf *output_pkts_burst[54];
-  rte_mempool * mbuf_pool;
+  rte_mbuf* input_pkts_burst[54];
+  rte_mbuf* output_pkts_burst[54];
+  rte_mempool* mbuf_pool;
   // rte_mbuf *in_m_head;
   // rte_mbuf *out_m_head;
-
 };
 
-# endif  // DODECODE_ACC_H_
+#endif  // DODECODE_ACC_H_
 
-#endif // USE_ACC100
+#endif  // USE_ACC100
