@@ -6,22 +6,24 @@
 #include "radio.h"
 
 #include "logger.h"
-#include "radio_soapysdr.h"
 #if defined(USE_PURE_UHD)
 #include "radio_uhdsdr.h"
+#elif
+#include "radio_soapysdr.h"
 #endif
 
 std::unique_ptr<Radio> Radio::Create(Radio::RadioType type) {
   switch (type) {
+#if defined(USE_PURE_UHD)
+    case kUhdNative: {
+      return std::make_unique<RadioUHDSdr>();
+    }
+#elif
     case kSoapySdrStream: {
       return std::make_unique<RadioSoapySdr>(RadioDataPlane::kSoapyStream);
     }
     case kSoapySdrSocket: {
       return std::make_unique<RadioSoapySdr>(RadioDataPlane::kLinuxSocket);
-    }
-#if defined(USE_PURE_UHD)
-    case kUhdNative: {
-      return std::make_unique<RadioUHDSdr>();
     }
 #endif
     default: {
@@ -52,7 +54,8 @@ void Radio::Close() {
 }
 
 void Radio::Init(const Config* cfg, size_t id, const std::string& serial,
-                 const std::vector<size_t>& enabled_channels, bool hw_framer) {
+                 const std::vector<size_t>& enabled_channels, bool hw_framer,
+                 bool isUE) {
   AGORA_LOG_TRACE("Init Radio %s(%zu)\n", serial.c_str(), id);
 
   id_ = id;
@@ -60,6 +63,7 @@ void Radio::Init(const Config* cfg, size_t id, const std::string& serial,
   serial_number_ = serial;
   enabled_channels_ = enabled_channels;
   hw_framer_ = hw_framer;
+  is_ue_ = isUE;
 }
 
 void Radio::Setup([[maybe_unused]] const std::vector<double>& tx_gains,

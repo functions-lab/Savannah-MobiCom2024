@@ -18,14 +18,15 @@
 static constexpr bool kDebugBeaconChannels = false;
 static constexpr size_t kSyncDetectChannel = 0;
 static constexpr bool kVerifyFirstSync = true;
-static constexpr size_t kReSyncRetryCount = 100u;
+static constexpr size_t kReSyncRetryCount = 1000000u;
 static constexpr float kBeaconDetectWindow = 2.33f;
 static constexpr size_t kBeaconsToStart = 2;
 static constexpr bool kPrintClientBeaconSNR = true;
 static constexpr ssize_t kMaxBeaconAdjust = 5;
-static constexpr bool kThreadedTx = true;
+static constexpr bool kThreadedTx = false;
 
-static constexpr bool kDebugRxTimes = true;
+static constexpr bool kDebugRxTimes = false;
+static constexpr bool kSyncRadio = false;
 
 TxRxWorkerClientUhd::TxRxWorkerClientUhd(
     size_t core_offset, size_t tid, size_t interface_count,
@@ -43,6 +44,9 @@ TxRxWorkerClientUhd::TxRxWorkerClientUhd(
                  rx_memory, tx_memory, sync_mutex, sync_cond, can_proceed),
       radio_(radio_config),
       program_start_ticks_(0),
+      doResync(false),
+      num_ue_stream(config->NumUeChannels()),
+      adjust_Tx(0),
       frame_zeros_(
           config->NumUeChannels(),
           std::vector<std::complex<int16_t>>(
@@ -186,7 +190,9 @@ void TxRxWorkerClientUhd::DoTxRx() {
     size_t tx_status = 0;
     if (kThreadedTx == false) {
       if (time0 != 0) {
+        // std::cout<<"DoTx called"<<std::endl;
         tx_status = DoTx(time0);
+        doResync = false;
       }
     }
     if (tx_status == 0) {
@@ -206,6 +212,7 @@ void TxRxWorkerClientUhd::DoTxRx() {
           time0 = rx_time;
           //Launch TX attempt
           if (kThreadedTx) {
+            std::cout << "DoTxThread called" << std::endl;
             tx_thread =
                 std::thread(&TxRxWorkerClientUhd::DoTxThread, this, time0);
           }
@@ -246,7 +253,6 @@ void TxRxWorkerClientUhd::DoTxRx() {
         //If we have a beacon and we would like to resync
         if (resync &&
             (rx_symbol_id == Configuration()->Frame().GetBeaconSymbolLast())) {
-          //This is adding a race condition on this data, it is ok for now but we should fix this
           const ssize_t sync_index = FindSyncBeacon(
               reinterpret_cast<std::complex<int16_t>*>(
                   rx_pkts.at(kSyncDetectChannel)->data_),
@@ -254,8 +260,10 @@ void TxRxWorkerClientUhd::DoTxRx() {
           if (sync_index >= 0) {
             const ssize_t adjust = sync_index - Configuration()->BeaconLen() -
                                    Configuration()->OfdmTxZeroPrefix();
+            adjust_Tx = adjust;
+            doResync = true;
             if (std::abs(adjust) > kMaxBeaconAdjust) {
-              AGORA_LOG_WARN(
+              AGORA_LOG_TRACE(
                   "TxRxWorkerClientUhd [%zu]: Re-syncing ignored due to "
                   "excess "
                   "offset %ld - channel %zu, sync_index: %ld, tries %zu\n ",
@@ -411,16 +419,16 @@ std::vector<Packet*> TxRxWorkerClientUhd::DoRx(size_t interface_id,
     }  // end is RxSymbol
     ResetRxStatus(interface_id, (publish_symbol == false));
   } else {
-    AGORA_LOG_ERROR(
-        "TxRxWorkerClientUhd[%zu]::DoRx: Unexpected Rx return status %dn\n",
-        tid_, rx_status);
-    throw std::runtime_error(
-        "TxRxWorkerClientUhd::DoRx:Unexpected Rx return status");
+    // AGORA_LOG_ERROR(
+    //     "TxRxWorkerClientUhd[%zu]::DoRx: Unexpected Rx return status %dn\n",
+    //     tid_, rx_status);
+    // throw std::runtime_error(
+    //     "TxRxWorkerClientUhd::DoRx:Unexpected Rx return status");
   }
   return result_packets;
 }
 
-size_t TxRxWorkerClientUhd::DoTxThread(const long long time0) {
+size_t TxRxWorkerClientUhd::DoTxThread(long long time0) {
   PinToCoreWithOffset(ThreadType::kWorkerTXRX, core_offset_, tid_ + 6);
 
   AGORA_LOG_INFO(
@@ -440,7 +448,7 @@ size_t TxRxWorkerClientUhd::DoTxThread(const long long time0) {
 }
 
 //Tx data
-size_t TxRxWorkerClientUhd::DoTx(const long long time0) {
+size_t TxRxWorkerClientUhd::DoTx(long long time0) {
   auto tx_events = GetPendingTxEvents();
 
   for (const EventData& current_event : tx_events) {
@@ -468,6 +476,23 @@ size_t TxRxWorkerClientUhd::DoTx(const long long time0) {
     //For Tx we need all channels_per_interface_ antennas before we can transmit
     //we will assume that if you get the last antenna, you have already received all
     //other antennas (enforced in the passing utility)
+
+    // if (!kSyncRadio){
+    //   int interval = 1000;
+    //   int extra_time = 25;
+    //   int frame_group = 0;
+    //   if (frame_id > 1000){
+    //     frame_group = (frame_id - 1000) / interval;
+    //   }
+    //   if (frame_group > 0) {
+    //     time0 = time0 + (frame_group * extra_time);
+    //   }
+    // }
+
+    if (doResync) {
+      time0 = time0 + adjust_Tx / num_ue_stream;
+    }
+
     if ((ant_offset + 1) == channels_per_interface_) {
       // Transmit pilot(s)
       for (size_t ch = 0; ch < channels_per_interface_; ch++) {
@@ -586,7 +611,7 @@ ssize_t TxRxWorkerClientUhd::SyncBeacon(size_t local_interface,
           sync_index = FindSyncBeacon(
               reinterpret_cast<std::complex<int16_t>*>(
                   rx_pkts_ptrs_.at(kSyncDetectChannel)->RawPacket()->data_),
-              sample_window);
+              sample_window, Configuration()->ClCorrScale().at(tid_));
           //Throw out samples until we detect the beacon
           request_samples = sample_window;
           rx_tracker.Reset(rx_pkts_ptrs_);
@@ -732,7 +757,7 @@ void TxRxWorkerClientUhd::TxUplinkSymbols(size_t radio_id, size_t frame_id,
       std::cout << "BAD Write (UL): For Ue " << radio_id << " " << tx_status
                 << "/" << samples_per_symbol << std::endl;
     }
-    if (true) {
+    if (false) {
       AGORA_LOG_INFO(
           "TxRxWorkerClientUhd::DoTx[%zu]: Transmitted Symbol (Frame "
           "%zu:%zu, Symbol %zu, Ue %zu) at time %lld:%lld:%lld flags %d\n",

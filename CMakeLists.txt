@@ -390,13 +390,22 @@ if(RADIO_TYPE STREQUAL PURE_UHD)
   set(RADIO_SOURCES
       src/radio/radio_set/radio_set_uhd.cc
       src/radio/radio_uhdsdr.cc
+      src/radio/radio.cc
+      src/radio/radio_set/radio_set.cc
       )
   set(RADIO_SOURCES_AGORA
       src/agora/txrx/workers/txrx_worker_usrp.cc
+      src/agora/txrx/packet_txrx_radio.cc
+      src/agora/txrx/workers/txrx_worker_hw.cc
+      # src/radio/radio_set/radio_set_bs.cc
+
       )
 
   set(RADIO_SOURCES_CLIENT
       src/client/txrx/workers/txrx_worker_client_uhd.cc
+      src/client/txrx/packet_txrx_client_radio.cc
+      src/client/txrx/workers/txrx_worker_client_hw.cc
+      src/radio/radio_set/radio_set_ue.cc
       )
   message(STATUS "pure_uhd_lib library initialized")
 endif()

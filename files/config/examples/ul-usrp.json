@@ -4,34 +4,36 @@
     "channel": "A",
     "frequency": 3e9,
     "single_gain": true,
-    "rx_gain_a": 20,
-    "tx_gain_a": 20,
-    "rx_gain_b": 20,
-    "tx_gain_b": 20,
-    "sample_rate": 5e6,
+    "rx_gain_a": 15,
+    "tx_gain_a": 15,
+    "rx_gain_b": 15,
+    "tx_gain_b": 15,
+    "sample_rate": 100e6,
     "cp_size": 32,
-    "fft_size": 512,
-    "ofdm_data_num": 304,
-    "demul_block_size": 48,
-    "ue_demul_block_size": 48,
+    "fft_size": 1024,
+    "ofdm_data_num": 768,
+    "demul_block_size": 768,
     "ul_mcs": {
         "modulation": "16QAM",
-        "code_rate": 0.333
+        "code_rate": 0.333,
+        "decoderIter": 5
+    },
+    "dl_mcs" : {
+        "modulation": "16QAM",
+        "code_rate": 0.333,
+        "decoderIter": 5
     },
     "ofdm_tx_zero_prefix": 160,
-    "ofdm_tx_zero_postfix": 192,
+    "ofdm_tx_zero_postfix": 160,
     "ofdm_rx_zero_prefix_bs": 160,
-    "ofdm_rx_zero_prefix_client": 160,
-    "ofdm_rx_zero_prefix_cal_dl": 324,
-    "ofdm_rx_zero_prefix_cal_ul": 136,
     "frame_schedule": [
-        "BGGGGGPGGGUUUGGG"
+        "BGGPUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
     ],
     "client_ul_pilot_syms": 2,
+    "beacon_antenna" : 0,
     "beamsweep": false,
-    "beacon_antenna": 0,
     /* UE configuration */
-    "ue_resync_period": 200,
+    "ue_resync_period": 1000,
     "ue_channel": "A",
     "ue_rx_gain_a": [
         20
@@ -46,7 +48,7 @@
         20
     ],
     "tx_advance": [
-        140
+        60
     ],
     "ue_hw_framer": false,
     "hw_framer": false,
@@ -55,12 +57,13 @@
         0
     ],
     /* UE (User) */
-    "ue_core_offset": 12,
+    "ue_core_offset": 40,
     "ue_worker_thread_num": 4,
     "ue_socket_thread_num": 1,
     /* BS (Agora) */
-    "core_offset": 0,
-    "worker_thread_num": 8,
+    "core_offset": 1,
+    "worker_thread_num": 1,
     "socket_thread_num": 1,
-    "max_frame": 5000
-}
+    "max_frame": 200000,
+    "corr_scale": [10]
+ }

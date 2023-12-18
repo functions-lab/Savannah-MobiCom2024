@@ -89,8 +89,32 @@ RadioSetUhd::RadioSetUhd(Config* cfg, Radio::RadioType radio_type)
 }
 
 void RadioSetUhd::InitRadio(size_t radio_id) {
-  radios_.at(radio_id)->Init(cfg_, radio_id, cfg_->RadioId().at(radio_id),
-                             Utils::StrToChannels(cfg_->Channel()), false);
+  size_t total_rx_channel;
+
+  if (cfg_->Channel() == "AB") {
+    total_rx_channel = cfg_->NumRadios() * 2;
+  } else {
+    total_rx_channel = cfg_->NumRadios();
+  }
+
+  std::vector<size_t> new_channels(total_rx_channel);
+
+  if (cfg_->Channel() == "AB") {
+    for (size_t ii = 0; ii < total_rx_channel; ii++) {
+      new_channels[ii] = ii;
+    }
+  } else if (cfg_->Channel() == "A") {
+    for (size_t ii = 0; ii < total_rx_channel; ii++) {
+      new_channels[ii] = ii * 2;
+    }
+  } else {
+    for (size_t ii = 0; ii < total_rx_channel; ii++) {
+      new_channels[ii] = ii * 2 + 1;
+    }
+  }
+
+  std::cout<<"!!!!!!!!!!!!!! here"<<std::endl;
+  radios_.at(radio_id)->Init(cfg_, radio_id, cfg_->RadioId().at(radio_id), new_channels, false, false);
   num_radios_initialized_.fetch_add(1);
 }
 

@@ -307,7 +307,7 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     ref_dec_op[i]->ldpc_dec.n_filler =  (uint16_t) 0;
     ref_dec_op[i]->ldpc_dec.rv_index = (uint8_t) 0;
     ref_dec_op[i]->ldpc_dec.n_cb = (uint16_t) ldpc_config.NumCbCodewLen();
-    ref_dec_op[i]->ldpc_dec.q_m = (uint8_t) 4;
+    ref_dec_op[i]->ldpc_dec.q_m = (uint8_t) 2;
     ref_dec_op[i]->ldpc_dec.code_block_mode = (uint8_t) 1;
     ref_dec_op[i]->ldpc_dec.cb_params.e =(uint32_t) 44;
     if (!check_bit(ref_dec_op[i]->ldpc_dec.op_flags, RTE_BBDEV_LDPC_ITERATION_STOP_ENABLE)){

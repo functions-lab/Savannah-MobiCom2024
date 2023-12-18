@@ -34,14 +34,14 @@ class TxRxWorkerClientUhd : public TxRxWorker {
   void DoTxRx() final;
 
  private:
-  size_t DoTxThread(const long long time0);
-  size_t DoTx(const long long time0);
+  size_t DoTxThread(long long time0);
+  size_t DoTx(long long time0);
   std::vector<Packet*> DoRx(size_t interface_id, size_t frame_id,
                             size_t symbol_id, long long& receive_time);
 
   ssize_t SyncBeacon(size_t local_interface, size_t sample_window);
   ssize_t FindSyncBeacon(const std::complex<int16_t>* check_data,
-                         size_t sample_window, float corr_scale = 1.f);
+                         size_t sample_window, float corr_scale);
   void AdjustRx(size_t local_interface, size_t discard_samples);
   bool IsRxSymbol(size_t symbol_id);
   void TxUplinkSymbols(size_t radio_id, size_t frame_id, long long time0);
@@ -63,5 +63,8 @@ class TxRxWorkerClientUhd : public TxRxWorker {
 
   //For each interface.
   std::vector<TxRxWorkerRx::RxStatusTracker> rx_status_;
+  bool doResync;
+  long long adjust_Tx;
+  size_t num_ue_stream;
 };
 #endif  // TXRX_WORKER_CLIENT_UHD_H_
