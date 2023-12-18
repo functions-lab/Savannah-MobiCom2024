@@ -9,9 +9,15 @@
 
 RadioSetUe::RadioSetUe(const Config* const cfg, Radio::RadioType radio_type)
     : RadioSet(cfg->SampsPerSymbol()), cfg_(cfg) {
+
+#if defined(USE_PURE_UHD)
+  total_radios_ = 1;
+#else
   total_radios_ = cfg_->UeNum();
+#endif
+  
   total_antennas_ = cfg_->UeAntNum();
-  std::cout << "Total Number of Client Radios " << total_radios_ << " with "
+  std::cout << "Total Number of Client Radios " << cfg_->UeNum() << " with "
             << total_antennas_ << " antennas" << std::endl;
 
   for (size_t i = 0; i < total_radios_; i++) {
@@ -55,9 +61,36 @@ RadioSetUe::RadioSetUe(const Config* const cfg, Radio::RadioType radio_type)
 }
 
 void RadioSetUe::InitRadio(size_t radio_id) {
-  radios_.at(radio_id)->Init(cfg_, radio_id, cfg_->UeRadioId().at(radio_id),
+  
+  #if defined(USE_PURE_UHD)
+    size_t total_ue_channel;
+    if (cfg_->Channel() == "AB") {
+      total_ue_channel = cfg_->UeNum() * 2;
+    } else {
+      total_ue_channel = cfg_->UeNum();
+    }
+    std::vector<size_t> new_channels(total_ue_channel);
+
+    if (cfg_->Channel() == "AB") {
+      for (size_t ii = 0; ii < total_ue_channel; ii++) {
+        new_channels[ii] = ii;
+      }
+    } else if (cfg_->Channel() == "A") {
+      for (size_t ii = 0; ii < total_ue_channel; ii++) {
+        new_channels[ii] = ii * 2;
+      }
+    } else {
+      for (size_t ii = 0; ii < total_ue_channel; ii++) {
+        new_channels[ii] = ii * 2 + 1;
+      }
+    }
+    radios_.at(radio_id)->Init(cfg_, radio_id, cfg_->UeRadioId().at(radio_id),
+                             new_channels, false, true);
+  #else
+    radios_.at(radio_id)->Init(cfg_, radio_id, cfg_->UeRadioId().at(radio_id),
                              Utils::StrToChannels(cfg_->UeChannel()),
-                             cfg_->UeHwFramer());
+                             cfg_->UeHwFramer(), true);
+  #endif
 
   std::vector<double> tx_gains;
   tx_gains.emplace_back(cfg_->ClientTxGainA(radio_id));

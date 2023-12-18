@@ -53,21 +53,53 @@ void RadioUHDSdr::Close() {
 
 void RadioUHDSdr::Init(const Config* cfg, size_t id, const std::string& serial,
                        const std::vector<size_t>& enabled_channels,
-                       bool hw_framer) {
+                       bool hw_framer, bool isUE) {
+  bool is_ue = isUE;
   if (dev_ == nullptr) {
     AGORA_LOG_TRACE("Init RadioUHDSdr %s(%zu)\n", serial.c_str(), id);
-    Radio::Init(cfg, id, serial, enabled_channels, hw_framer);
+    Radio::Init(cfg, id, serial, enabled_channels, hw_framer, isUE);
 
     std::map<std::string, std::string> args;
     std::map<std::string, std::string> sargs;
 
+    size_t real_num_radios = cfg->NumRadios();
+    AGORA_LOG_INFO("real_num_radios: %zu\n", real_num_radios);
+
+    size_t real_ue_num_radios = cfg->UeNum();
+    AGORA_LOG_INFO("real ue num_radios: %zu\n", real_ue_num_radios);
+
+    if (is_ue) {
+      std::vector<std::string> address_list;
+      for (size_t i = 0; i < real_ue_num_radios; i++) {
+        std::ostringstream oss;
+        oss << "addr" << i;
+        address_list.push_back(oss.str());
+        args[address_list.at(i)] = cfg->UeRadioId().at(i);
+        AGORA_LOG_INFO("args addr key is: %s, value is: %s\n",
+                       address_list.at(i), cfg->UeRadioId().at(i));
+      }
+      // args["addr"] = SerialNumber();
+    } else {
+      std::vector<std::string> address_list;
+      for (size_t i = 0; i < real_num_radios; i++) {
+        std::ostringstream oss;
+        oss << "addr" << i;
+        address_list.push_back(oss.str());
+        args[address_list.at(i)] = cfg->RadioId().at(i);
+        AGORA_LOG_INFO("args addr key is: %s, value is: %s\n",
+                       address_list.at(i), cfg->RadioId().at(i));
+      }
+    }
+
     args["timeout"] = "1000000";
     args["driver"] = "uhd";
-    args["addr"] = SerialNumber();
+    // args["addr"] = SerialNumber();
     //Need to make sure MTU is acceptable of this (assume 32 bit/4 byte samples)
-    const std::string frame_size = std::to_string(cfg->SampsPerSymbol() * 4);
-    args["send_frame_size"] = frame_size;
-    args["recv_frame_size"] = frame_size;
+    // const std::string frame_size = std::to_string(cfg->SampsPerSymbol() * 4);
+    // args["send_frame_size"] = frame_size;
+    // args["recv_frame_size"] = frame_size;
+    args["clock_source"] = "internal";
+    args["time_source"] = "internal";
 
     for (size_t tries = 0; tries < kMakeMaxAttempts; tries++) {
       try {
@@ -90,6 +122,9 @@ void RadioUHDSdr::Init(const Config* cfg, size_t id, const std::string& serial,
     device_info << "Hardware = " << dev_->get_mboard_name() << std::endl;
 
     if (kPrintRadioSettings) {
+      AGORA_LOG_INFO("number of mother boards in the device: %d\n",
+                     dev_->get_num_mboards());
+
       auto clock_sources = dev_->get_clock_sources(0);
       for ([[maybe_unused]] const auto& source : clock_sources) {
         AGORA_LOG_TRACE("Clock source %s\n", source.c_str());
@@ -157,8 +192,9 @@ void RadioUHDSdr::Setup(const std::vector<double>& tx_gains,
     dev_->set_tx_freq(tr1, ch);
 
     // kUseUHD
-    dev_->set_rx_gain(rx_gains.at(ch), "PGA0", ch);
-    dev_->set_tx_gain(tx_gains.at(ch), "PGA0", ch);
+    dev_->set_rx_gain(rx_gains.at(0), ch);
+    dev_->set_tx_gain(tx_gains.at(0), ch);
+
   }  // end for (const auto& ch : EnabledChannels())
 }
 
@@ -169,8 +205,8 @@ void RadioUHDSdr::Activate(Radio::ActivationTypes type, long long act_time_ns,
       "%d\n",
       SerialNumber().c_str(), Id(), act_time_ns, samples,
       static_cast<int>(type));
-  const bool is_ue = false;
-  if (is_ue) {
+  bool is_ue_ = true;
+  if (is_ue_) {
     AGORA_LOG_INFO("setting sources to internal \n");
     dev_->set_clock_source("internal");
     dev_->set_time_source("internal");
@@ -357,7 +393,7 @@ int RadioUHDSdr::Rx(std::vector<void*>& rx_locs, size_t rx_size,
                                             rxs_->get_num_channels());
   const size_t rx_status =
       rxs_->recv(stream_buffs, rx_size, md, kRxTimeoutSec, false);
-
+  // out_flags = Radio::RxFlags::kRxFlagNone;
   const bool has_time = md.has_time_spec;
   [[maybe_unused]] const bool start_burst = md.start_of_burst;
   const bool end_burst = md.end_of_burst;
@@ -396,12 +432,12 @@ int RadioUHDSdr::Rx(std::vector<void*>& rx_locs, size_t rx_size,
                      rx_size, rx_status);
     }
 
-    if (more_frags) {
-      AGORA_LOG_WARN(
-          "RadioUHDSdr::Rx - fragments remaining on rx call requested %zu "
-          "received %zu\n",
-          rx_size, rx_status);
-    }
+    // if (more_frags) {
+    //   AGORA_LOG_WARN(
+    //       "RadioUHDSdr::Rx - fragments remaining on rx call requested %zu "
+    //       "received %zu\n",
+    //       rx_size, rx_status);
+    // }
     out_flags = Radio::RxFlags::kEndReceive;
   } else {
     AGORA_LOG_WARN(
@@ -468,14 +504,16 @@ void RadioUHDSdr::PrintSettings() const {
     }
   }
 
-  print_message << SerialNumber() << " (" << Id() << ")" << std::endl;
+  // print_message << SerialNumber() << " (" << Id() << ")" << std::endl;
 
   if (kPrintRadioSettings) {
     for (size_t i = 0; i < EnabledChannels().size(); i++) {
       print_message << "channels enalbed are: " << EnabledChannels()[i]
                     << std::endl;
     }
-    for (const auto& c : EnabledChannels()) {
+    // size_t total_rx_channel = EnabledChannels().size()* 3 cfg_->Numradios()*2;
+    size_t total_rx_channel = cfg_->NumRadios()*2;
+    for (size_t c = 0; c < total_rx_channel; c++) {
       if (c < dev_->get_rx_num_channels()) {
         print_message << "RX Channel " << c << std::endl
                       << "Actual RX sample rate: "
@@ -492,7 +530,9 @@ void RadioUHDSdr::PrintSettings() const {
       }
     }
 
-    for (auto c : EnabledChannels()) {
+    // size_t total_tx_channel = EnabledChannels().size()* 2;
+    size_t total_tx_channel = cfg_->NumRadios()*2;
+    for (size_t c = 0; c < total_tx_channel; c++) {
       if (c < dev_->get_tx_num_channels()) {
         print_message << "TX Channel " << c << std::endl
                       << "Actual TX sample rate: "

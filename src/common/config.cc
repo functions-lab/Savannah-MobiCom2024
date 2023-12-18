@@ -688,10 +688,10 @@ Config::Config(std::string jsonfilename)
   dl_packet_length_ = Packet::kOffsetOfData + (samps_per_symbol_ * 4);
 
   //Don't check for jumbo frames when using the hardware, this might be temp
-  if (!kUseArgos) {
-    RtAssert(packet_length_ < 9000,
-             "Packet size must be smaller than jumbo frame");
-  }
+  // if (!kUseArgos) {
+  //   RtAssert(packet_length_ < 9000,
+  //            "Packet size must be smaller than jumbo frame");
+  // }
 
   ul_num_bytes_per_cb_ = ul_ldpc_config_.NumCbLen() / 8;
   ul_num_padding_bytes_per_cb_ =
@@ -778,7 +778,15 @@ Config::Config(std::string jsonfilename)
 
   this->running_.store(true);
   /* 12 bit samples x2 for I + Q */
+
+#if defined(USE_PURE_UHD)
+  AGORA_LOG_INFO("Traffic calculated based on USRP ADC Settings\n");
+  static const size_t kBitsPerSample = 16 * 2;
+#else
+  AGORA_LOG_INFO("Traffic calculated based on Faros ADC Settings\n");
   static const size_t kBitsPerSample = 12 * 2;
+#endif
+  
   const double bit_rate_mbps = (rate_ * kBitsPerSample) / 1e6;
   //For framer mode, we can ignore the Beacon
   //Double count the UlCal and DLCal to simplify things
