@@ -319,6 +319,43 @@ std::vector<std::complex<float>> CommsLib::ComplexMultAvx(
   return out;
 }
 
+__m256 CommsLib::M256ComplexCf32Reciprocal(__m256 data) {
+  __m256 sq        __attribute__((aligned(ALIGNMENT)));
+  __m256 denom     __attribute__((aligned(ALIGNMENT)));
+  __m256 denom_rs  __attribute__((aligned(ALIGNMENT)));
+  __m256 real_sq   __attribute__((aligned(ALIGNMENT)));
+  __m256 imag_sq   __attribute__((aligned(ALIGNMENT)));
+  __m256 numerator __attribute__((aligned(ALIGNMENT)));
+  __m256 res       __attribute__((aligned(ALIGNMENT)));
+
+  const __m256 neg = _mm256_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
+  const __m256 real_mask =
+    _mm256_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
+  const __m256 imag_mask =
+    _mm256_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
+
+  /* Strategy: 1/(a+bj) = (a-bj)/(a^2+b^2) */
+  /* Step 1: generate numerator */
+  numerator = _mm256_mul_ps(data, neg); // (i1, -q1, i2, -q2, ...) = (a - bj)
+
+  /* Step 2: find squares */
+  sq = _mm256_mul_ps(data, data); // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2, b^2)
+  real_sq = _mm256_mul_ps(sq, real_mask);
+  imag_sq = _mm256_mul_ps(sq, imag_mask);
+  imag_sq = _mm256_castsi256_ps(_mm256_slli_epi32(
+              _mm256_castps_si256(imag_sq), 0x10)); // left shift 16 bits
+  
+  /* Step 3: generate denominator */
+  denom = _mm256_add_ps(real_sq, imag_sq); // (a^2 + b^2, 0, a^2 + b^2, 0, ...)
+  denom_rs = _mm256_castsi256_ps(_mm256_srli_epi32(
+              _mm256_castps_si256(denom), 0x10)); // right shift 16 bits
+  denom = _mm256_add_ps(denom, denom_rs); // (a^2 + b^2, a^2 + b^2, ...)
+
+  /* Step 4: divide conj(data) by denominator */
+  res = _mm256_div_ps(numerator, denom);
+  return res;
+}
+
 #ifdef __AVX512F__
 /**
  * Perform complex reciprocol of a vector of single precision (32 bit)
@@ -339,35 +376,61 @@ __m512 CommsLib::M512ComplexCf32Reciprocal(__m512 data) {
   const __m512 neg = _mm512_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
                                     1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
   const __m512 real_mask =
-      _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+      _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
                     0.0, 1.0, 0.0, 1.0, 0.0);
   const __m512 imag_mask =
-      _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+      _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
                      0.0, 1.0, 0.0, 1.0, 0.0);
 
   /* Strategy: 1/(a+bj) = (a-bj)/(a^2+b^2) */
   /* Step 1: generate numerator */
-  numerator = _mm512_mul_ps(data, neg);  // (i1, -q1, i2, -q2, ...) = (a - bj)
+  numerator = _mm512_mul_ps(data, neg); // (i1, -q1, i2, -q2, ...) = (a - bj)
 
   /* Step 2: find squares */
-  sq = _mm512_mul_ps(data, data);  // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2,
-                                   // b^2)
+  sq = _mm512_mul_ps(data, data); // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2, b^2)
   real_sq = _mm512_mul_ps(sq, real_mask);
   imag_sq = _mm512_mul_ps(sq, imag_mask);
   imag_sq = _mm512_castsi512_ps(_mm512_slli_epi64(
               _mm512_castps_si512(imag_sq), 0x20)); // left shift 32 bits
 
   /* Step 3: generate denominator */
-  denom = _mm512_add_ps(real_sq, imag_sq);  // (a^2 + b^2, 0, a^2 + b^2, 0, ...)
+  denom = _mm512_add_ps(real_sq, imag_sq); // (a^2 + b^2, 0, a^2 + b^2, 0, ...)
   denom_rs = _mm512_castsi512_ps(_mm512_srli_epi64(
               _mm512_castps_si512(denom), 0x20)); // right shift 32 bits
-  denom = _mm512_add_ps(denom, denom_rs);    // (a^2 + b^2, a^2 + b^2, ...)
+  denom = _mm512_add_ps(denom, denom_rs); // (a^2 + b^2, a^2 + b^2, ...)
 
   /* Step 4: divide conj(data) by denominator */
   res = _mm512_div_ps(numerator, denom);
   return res;
 }
 #endif
+
+bool CommsLib::M256ComplexCf32NearZeros(__m256 data, float threshold) {
+  __m256 sq        __attribute__((aligned(ALIGNMENT)));
+  __m256 real_sq   __attribute__((aligned(ALIGNMENT)));
+  __m256 imag_sq   __attribute__((aligned(ALIGNMENT)));
+
+  const __m256 real_mask =
+    _mm256_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
+  const __m256 imag_mask =
+    _mm256_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
+
+  /* calculate the square of the absolute value of each complex value number */
+  sq = _mm256_mul_ps(data, data); // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2, b^2)
+  real_sq = _mm256_mul_ps(sq, real_mask);
+  imag_sq = _mm256_mul_ps(sq, imag_mask);
+  imag_sq = _mm256_castsi256_ps(_mm256_slli_epi32(
+              _mm256_castps_si256(imag_sq), 0x10)); // left shift 16 bits
+  sq = _mm256_add_ps(real_sq, imag_sq); // (a^2 + b^2, 0, a^2 + b^2, 0, ...)
+
+  /* broadcast all elements with the same value, square to avoid sqrt(data) */
+  __m256 thres = _mm256_set1_ps(threshold*threshold);
+
+  /* compare with the threshold, set the mask if data < thres */
+  // OS: ordered, signaling, https://stackoverflow.com/questions/16988199/
+  __m256i comp = _mm256_castps_si256(_mm256_cmp_ps(data, thres, _CMP_LT_OS));
+  return _mm256_testc_si256(comp, _mm256_set1_epi32(0xFFFFFFFF)) != 0;
+}
 
 #ifdef __AVX512F__
 /**
@@ -382,15 +445,14 @@ bool CommsLib::M512ComplexCf32NearZeros(__m512 data, float threshold) {
   __m512 imag_sq   __attribute__((aligned(64)));
 
   const __m512 real_mask =
-      _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
-                    0.0, 1.0, 0.0, 1.0, 0.0);
-  const __m512 imag_mask =
       _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
                      0.0, 1.0, 0.0, 1.0, 0.0);
+  const __m512 imag_mask =
+      _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+                    0.0, 1.0, 0.0, 1.0, 0.0);
 
   /* calculate the square of the absolute value of each complex value number */
-  sq = _mm512_mul_ps(data, data);  // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2,
-                                   // b^2)
+  sq = _mm512_mul_ps(data, data);  // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2, b^2)
   real_sq = _mm512_mul_ps(sq, real_mask);
   imag_sq = _mm512_mul_ps(sq, imag_mask);
   imag_sq = _mm512_castsi512_ps(_mm512_slli_epi64(
@@ -409,6 +471,12 @@ bool CommsLib::M512ComplexCf32NearZeros(__m512 data, float threshold) {
 }
 #endif
 
+__m256 CommsLib::M256ComplexCf32Conj(__m256 data) {
+  const __m256 neg = _mm256_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1, -1.0);
+  __m256 conj = _mm256_mul_ps(data, neg);
+  return conj;
+}
+
 #ifdef __AVX512F__
 /**
  * Perform complex conjugate of a vector of single precision (32 bit)
@@ -424,6 +492,61 @@ __m512 CommsLib::M512ComplexCf32Conj(__m512 data) {
 }
 #endif
 
+std::complex<float> CommsLib::M256ComplexCf32Sum(__m256 data) {
+  const __m256i real_mask = _mm256_set_epi32(0, -1, 0, -1, 0, -1, 0, -1);
+  const __m256i imag_mask = _mm256_set_epi32(-1, 0, -1, 0, -1, 0, -1, 0);
+  const __m256i zero = _mm256_setzero_si256();
+
+  // q1, 0, q2, 0, q3, 0, q4, 0
+  __m256 real = _mm256_and_ps(data, _mm256_castsi256_ps(real_mask));
+  // 0, i1, 0, i2, 0, i3, 0, i4
+  __m256 imag = _mm256_and_ps(data, _mm256_castsi256_ps(imag_mask));
+
+  // // horizontally add the elements in each vector like binary combination
+  // // real = q1, q2, q1, q2, q3, q4, q3, q4
+  // real = _mm256_hadd_ps(real, real);
+  // // real = q1+q2, q1+q2, q3+q4, q3+q4, q1+q2, q1+q2, q3+q4, q3+q4
+  // real = _mm256_hadd_ps(real, real);
+  // // real_low_128 = q1+q2, q1+q2, q3+q4, q3+q4
+  // __m128 real_low_128 = _mm256_extractf128_ps(real, 0);
+  // // real_low_128 = q1+q2+q3+q4, 0, 0, 0
+  // float q1q2 = _mm_cvtss_f32(real_low_128);
+
+  // horizontally add the elements in each vector like binary combination
+  // real = q1, q2, 0, 0, q3, q4, 0, 0
+  real = _mm256_hadd_ps(real, _mm256_castsi256_ps(zero));
+  // real_low = q1, q2, 0, 0
+  // real_high = q3, q4, 0, 0
+  __m128 real_low = _mm256_extractf128_ps(real, 0);
+  __m128 real_high = _mm256_extractf128_ps(real, 1);
+
+  // real_low = q1+q2, q1+q2, 0, 0
+  real_low = _mm_hadd_ps(real_low, real_low);
+  // real_high = q3+q4, q3+q4, 0, 0
+  real_high = _mm_hadd_ps(real_high, real_high);
+
+  float q1q2 = _mm_cvtss_f32(real_low); // read the lowest element
+  float q3q4 = _mm_cvtss_f32(real_high);
+
+  // horizontally add the elements in each vector like binary combination
+  // imag = i1, i2, 0, 0, i3, i4, 0, 0
+  imag = _mm256_hadd_ps(imag,  _mm256_castsi256_ps(zero));
+  // imag_low = i1, i2, 0, 0
+  // imag_high = i3, i4, 0, 0
+  __m128 imag_low = _mm256_extractf128_ps(imag, 0);
+  __m128 imag_high = _mm256_extractf128_ps(imag, 1);
+
+  // imag_low = i1+i2, i1+i2, 0, 0
+  imag_low = _mm_hadd_ps(imag_low, imag_low);
+  // imag_high = i3+i4, i3+i4, 0, 0
+  imag_high = _mm_hadd_ps(imag_high, imag_high);
+
+  float i1i2 = _mm_cvtss_f32(imag_low);
+  float i3i4 = _mm_cvtss_f32(imag_high);
+
+  return std::complex<float>(q1q2+q3q4, i1i2+i3i4);
+}
+
 #ifdef __AVX512F__
 /**
  * Perform complex sum of a vector of single precision (32 bit)
@@ -431,8 +554,6 @@ __m512 CommsLib::M512ComplexCf32Conj(__m512 data) {
  * @param data: vector to sum
  */
 std::complex<float> CommsLib::M512ComplexCf32Sum(__m512 data) {
-  // Require that all data is aligned to 64 byte boundaries
-
   const __mmask16 real_mask = 0b0101010101010101;
   const __mmask16 imag_mask = 0b1010101010101010;
   float real = _mm512_mask_reduce_add_ps(real_mask, data);
@@ -441,6 +562,16 @@ std::complex<float> CommsLib::M512ComplexCf32Sum(__m512 data) {
   return std::complex<float>(real, imag);
 }
 #endif
+
+__m256 CommsLib::M256ComplexCf32Set1(std::complex<float> data) {
+  __m256 real = _mm256_set1_ps(data.real());
+  __m256 imag = _mm256_set1_ps(data.imag());
+  __m256i reali = _mm256_castps_si256(real);
+  __m256i imagi = _mm256_castps_si256(imag);
+  __m256i resi = _mm256_mask_blend_epi32(0b10101010, reali, imagi);
+  __m256 res = _mm256_castsi256_ps(resi);
+  return res;
+}
 
 #ifdef __AVX512F__
 /**
@@ -459,6 +590,17 @@ __m512 CommsLib::M512ComplexCf32Set1(std::complex<float> data) {
   return res;
 }
 #endif
+
+void CommsLib::PrintM256ComplexCf32(__m256 data) {
+  std::complex<float> content[8];
+  _mm256_storeu_ps(reinterpret_cast<float*>(content), data);
+
+  for (int i = 0; i < 4; i++) {
+      std::cout << "Complex Pair " << i + 1
+                << ": Real = " << content[2*i].real()
+                << ", Imaginary = " << content[2*i+1].imag() << std::endl;
+  }
+}
 
 #ifdef __AVX512F__
 /**

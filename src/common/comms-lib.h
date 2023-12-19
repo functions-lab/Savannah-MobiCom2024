@@ -190,13 +190,19 @@ class CommsLib {
       std::vector<std::complex<int16_t>> const& g);
 
   static __m256 M256ComplexCf32Mult(__m256 data1, __m256 data2, bool conj);
+  static __m256 M256ComplexCf32Reciprocal(__m256 data);
+  static __m256 M256ComplexCf32Conj(__m256 data);
+  static __m256 M256ComplexCf32Set1(std::complex<float> data);
+  static std::complex<float> M256ComplexCf32Sum(__m256 data);
+  static bool M256ComplexCf32NearZeros(__m256 data, float threshold);
+  static void PrintM256ComplexCf32(__m256 data);
 #ifdef __AVX512F__
   static __m512 M512ComplexCf32Mult(__m512 data1, __m512 data2, bool conj);
   static __m512 M512ComplexCf32Reciprocal(__m512 data);
-  static bool M512ComplexCf32NearZeros(__m512 data, float threshold);
   static __m512 M512ComplexCf32Conj(__m512 data);
-  static std::complex<float> M512ComplexCf32Sum(__m512 data);
   static __m512 M512ComplexCf32Set1(std::complex<float> data);
+  static std::complex<float> M512ComplexCf32Sum(__m512 data);
+  static bool M512ComplexCf32NearZeros(__m512 data, float threshold);
   static void PrintM512ComplexCf32(__m512 data);
 #endif
 };
