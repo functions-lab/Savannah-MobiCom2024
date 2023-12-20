@@ -13,6 +13,7 @@
     "fft_size": 1024,
     "ofdm_data_num": 768,
     "demul_block_size": 768,
+    "beam_block_size": 768,
     "ul_mcs": {
         "modulation": "16QAM",
         "code_rate": 0.333,
