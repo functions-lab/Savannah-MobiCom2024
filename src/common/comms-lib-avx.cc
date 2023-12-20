@@ -330,9 +330,9 @@ __m256 CommsLib::M256ComplexCf32Reciprocal(__m256 data) {
 
   const __m256 neg = _mm256_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
   const __m256 real_mask =
-    _mm256_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
-  const __m256 imag_mask =
     _mm256_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
+  const __m256 imag_mask =
+    _mm256_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
 
   /* Strategy: 1/(a+bj) = (a-bj)/(a^2+b^2) */
   /* Step 1: generate numerator */
@@ -376,11 +376,15 @@ __m512 CommsLib::M512ComplexCf32Reciprocal(__m512 data) {
   const __m512 neg = _mm512_setr_ps(1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0,
                                     1.0, -1.0, 1.0, -1.0, 1.0, -1.0, 1.0, -1.0);
   const __m512 real_mask =
-      _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+      _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
                     0.0, 1.0, 0.0, 1.0, 0.0);
   const __m512 imag_mask =
-      _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+      _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
                      0.0, 1.0, 0.0, 1.0, 0.0);
+  // const __m512i real_mask =
+  //   _mm512_set_epi32(-1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0);
+  // const __m512i imag_mask =
+  //   _mm512_set_epi32(0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1, 0, -1);
 
   /* Strategy: 1/(a+bj) = (a-bj)/(a^2+b^2) */
   /* Step 1: generate numerator */
@@ -390,6 +394,8 @@ __m512 CommsLib::M512ComplexCf32Reciprocal(__m512 data) {
   sq = _mm512_mul_ps(data, data); // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2, b^2)
   real_sq = _mm512_mul_ps(sq, real_mask);
   imag_sq = _mm512_mul_ps(sq, imag_mask);
+  // real_sq = _mm512_and_ps(sq, _mm512_castsi512_ps(real_mask));
+  // imag_sq = _mm512_and_ps(sq, _mm512_castsi512_ps(imag_mask));
   imag_sq = _mm512_castsi512_ps(_mm512_slli_epi64(
               _mm512_castps_si512(imag_sq), 0x20)); // left shift 32 bits
 
@@ -411,9 +417,9 @@ bool CommsLib::M256ComplexCf32NearZeros(__m256 data, float threshold) {
   __m256 imag_sq   __attribute__((aligned(ALIGNMENT)));
 
   const __m256 real_mask =
-    _mm256_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
-  const __m256 imag_mask =
     _mm256_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
+  const __m256 imag_mask =
+    _mm256_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0);
 
   /* calculate the square of the absolute value of each complex value number */
   sq = _mm256_mul_ps(data, data); // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2, b^2)
@@ -445,11 +451,11 @@ bool CommsLib::M512ComplexCf32NearZeros(__m512 data, float threshold) {
   __m512 imag_sq   __attribute__((aligned(64)));
 
   const __m512 real_mask =
-      _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
-                     0.0, 1.0, 0.0, 1.0, 0.0);
-  const __m512 imag_mask =
       _mm512_set_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
                     0.0, 1.0, 0.0, 1.0, 0.0);
+  const __m512 imag_mask =
+      _mm512_setr_ps(1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0,
+                     0.0, 1.0, 0.0, 1.0, 0.0);
 
   /* calculate the square of the absolute value of each complex value number */
   sq = _mm512_mul_ps(data, data);  // (i1^2, q1^2, i2^2, q2^2, ...) = (a^2, b^2)
@@ -493,52 +499,42 @@ __m512 CommsLib::M512ComplexCf32Conj(__m512 data) {
 #endif
 
 std::complex<float> CommsLib::M256ComplexCf32Sum(__m256 data) {
-  const __m256i real_mask = _mm256_set_epi32(0, -1, 0, -1, 0, -1, 0, -1);
-  const __m256i imag_mask = _mm256_set_epi32(-1, 0, -1, 0, -1, 0, -1, 0);
+  const __m256i real_mask = _mm256_set_epi32(-1, 0, -1, 0, -1, 0, -1, 0);
+  const __m256i imag_mask = _mm256_set_epi32(0, -1, 0, -1, 0, -1, 0, -1);
   const __m256i zero = _mm256_setzero_si256();
 
-  // q1, 0, q2, 0, q3, 0, q4, 0
+  // i1, 0, i2, 0, i3, 0, i4, 0
   __m256 real = _mm256_and_ps(data, _mm256_castsi256_ps(real_mask));
-  // 0, i1, 0, i2, 0, i3, 0, i4
+  // 0, q1, 0, q2, 0, q3, 0, q4
   __m256 imag = _mm256_and_ps(data, _mm256_castsi256_ps(imag_mask));
 
-  // // horizontally add the elements in each vector like binary combination
-  // // real = q1, q2, q1, q2, q3, q4, q3, q4
-  // real = _mm256_hadd_ps(real, real);
-  // // real = q1+q2, q1+q2, q3+q4, q3+q4, q1+q2, q1+q2, q3+q4, q3+q4
-  // real = _mm256_hadd_ps(real, real);
-  // // real_low_128 = q1+q2, q1+q2, q3+q4, q3+q4
-  // __m128 real_low_128 = _mm256_extractf128_ps(real, 0);
-  // // real_low_128 = q1+q2+q3+q4, 0, 0, 0
-  // float q1q2 = _mm_cvtss_f32(real_low_128);
-
   // horizontally add the elements in each vector like binary combination
-  // real = q1, q2, 0, 0, q3, q4, 0, 0
+  // real = i1, i2, 0, 0, i3, i4, 0, 0
   real = _mm256_hadd_ps(real, _mm256_castsi256_ps(zero));
-  // real_low = q1, q2, 0, 0
-  // real_high = q3, q4, 0, 0
+  // real_low = i1, i2, 0, 0
+  // real_high = i3, i4, 0, 0
   __m128 real_low = _mm256_extractf128_ps(real, 0);
   __m128 real_high = _mm256_extractf128_ps(real, 1);
 
-  // real_low = q1+q2, q1+q2, 0, 0
+  // real_low = i1+i2, i1+i2, 0, 0
   real_low = _mm_hadd_ps(real_low, real_low);
-  // real_high = q3+q4, q3+q4, 0, 0
+  // real_high = i3+i4, i3+i4, 0, 0
   real_high = _mm_hadd_ps(real_high, real_high);
 
   float q1q2 = _mm_cvtss_f32(real_low); // read the lowest element
   float q3q4 = _mm_cvtss_f32(real_high);
 
   // horizontally add the elements in each vector like binary combination
-  // imag = i1, i2, 0, 0, i3, i4, 0, 0
+  // imag = q1, q2, 0, 0, q3, q4, 0, 0
   imag = _mm256_hadd_ps(imag,  _mm256_castsi256_ps(zero));
-  // imag_low = i1, i2, 0, 0
-  // imag_high = i3, i4, 0, 0
+  // imag_low = q1, q2, 0, 0
+  // imag_high = q3, q4, 0, 0
   __m128 imag_low = _mm256_extractf128_ps(imag, 0);
   __m128 imag_high = _mm256_extractf128_ps(imag, 1);
 
-  // imag_low = i1+i2, i1+i2, 0, 0
+  // imag_low = q1+q2, q1+q2, 0, 0
   imag_low = _mm_hadd_ps(imag_low, imag_low);
-  // imag_high = i3+i4, i3+i4, 0, 0
+  // imag_high = q3+i4, q3+q4, 0, 0
   imag_high = _mm_hadd_ps(imag_high, imag_high);
 
   float i1i2 = _mm_cvtss_f32(imag_low);
