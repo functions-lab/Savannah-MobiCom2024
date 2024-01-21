@@ -15,7 +15,7 @@
 
 // Number of frames received that we allocate space for in worker threads. This
 // is the frame window that we track in Agora.
-static constexpr size_t kFrameWnd = 3;
+static constexpr size_t kFrameWnd = 4;
 
 #define TX_FRAME_DELTA (4)
 #define SETTLE_TIME_MS (1)
@@ -196,14 +196,14 @@ static constexpr bool kDebug12BitIQ = false;
 static constexpr bool kDebugDownlink = false;
 static constexpr bool kDebugUplink = false;
 
-static constexpr bool kUsePartialTrans = true;
+static constexpr bool kUsePartialTrans = false;
 
 // Enable hard demodulation and disable LDPC decoding
 // Useful for evaluating constellation quality
 static constexpr bool kDownlinkHardDemod = false;
 static constexpr bool kUplinkHardDemod = false;
 
-static constexpr bool kExportConstellation = false;
+static constexpr bool kExportConstellation = true;
 static constexpr bool kPrintPhyStats = true;
 #if !defined(TIME_EXCLUSIVE)
 static constexpr bool kCollectPhyStats = true;
