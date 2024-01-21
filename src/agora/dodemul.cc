@@ -484,47 +484,6 @@ EventData DoDemul::Launch(size_t tag) {
     // Accelerate (vectorized computation) 4x4 antenna config
     size_t start_equal_tsc0 = GetTime::WorkerRdtsc();
 
-    // Step 0: Re-arrange data
-    complex_float* dst = data_gather_buffer_;
-    for (size_t i = 0; i < max_sc_ite; i++) {
-      const size_t partial_transpose_block_base =
-          ((base_sc_id + i) / kTransposeBlockSize) *
-          (kTransposeBlockSize * cfg_->BsAntNum());
-
-      // Populate data_gather_buffer as a row-major matrix with max_sc_ite rows
-      // and BsAntNum() columns
-
-      for (size_t ant_i = 0; ant_i < cfg_->BsAntNum(); ant_i++) {
-        *dst++ = kUsePartialTrans
-                    ? data_buf[partial_transpose_block_base +
-                              (ant_i * kTransposeBlockSize) +
-                              ((base_sc_id + i) % kTransposeBlockSize)]
-                    : data_buf[ant_i * cfg_->OfdmDataNum() + base_sc_id + i];
-      }
-    }
-    arma::cx_float* data_ptr =
-      (arma::cx_float*)(&data_gather_buffer_[base_sc_id]);
-    arma::cx_fcube cub_data(data_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
-    // cub_data.print("cub_data");
-
-    // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
-    // for (size_t i = 0; i < max_sc_ite; ++i) {
-    //   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
-    //     ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id + i)]);
-    //   arma::cx_fmat mat_ul_beam(ul_beam_ptr,
-    //                             cfg_->UeAntNum(), cfg_->BsAntNum(), false);
-    //   cub_ul_beam.slice(i) = mat_ul_beam;
-    // }
-    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
-      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
-    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(),
-                               cfg_->BsAntNum(), max_sc_ite, false);
-
-    size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
-    duration_stat_equal_->task_duration_[1] +=
-        start_equal_tsc1 - start_equal_tsc0;
-
-    // Step 1: Equalization
     arma::cx_float* equal_ptr = nullptr;
     if (kExportConstellation) {
       equal_ptr = (arma::cx_float*)(&equal_buffer_[total_data_symbol_idx_ul]
@@ -535,6 +494,147 @@ EventData DoDemul::Launch(size_t tag) {
     arma::cx_fcube cub_equaled(equal_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
     // cub_equaled.print("cub_equaled");
 
+#ifdef __AVX512F__
+    // Step 0: Prepare pointers
+    arma::cx_frowvec vec_equal_0 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+    arma::cx_frowvec vec_equal_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+    arma::cx_frowvec vec_equal_2 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+    arma::cx_frowvec vec_equal_3 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
+    complex_float* ptr_equal_0 =
+      reinterpret_cast<complex_float*>(vec_equal_0.memptr());
+    complex_float* ptr_equal_1 =
+      reinterpret_cast<complex_float*>(vec_equal_1.memptr());
+    complex_float* ptr_equal_2 =
+      reinterpret_cast<complex_float*>(vec_equal_2.memptr());
+    complex_float* ptr_equal_3 =
+      reinterpret_cast<complex_float*>(vec_equal_3.memptr());
+
+    // Prepare operand pointers for core equalization
+    complex_float* ul_beam_ptr = ul_beam_matrices_[frame_slot][0];
+    const complex_float* ptr_a_1_1 = ul_beam_ptr;
+    const complex_float* ptr_a_1_2 = ul_beam_ptr + max_sc_ite;
+    const complex_float* ptr_a_1_3 = ul_beam_ptr + 2 * max_sc_ite;
+    const complex_float* ptr_a_1_4 = ul_beam_ptr + 3 * max_sc_ite;
+    const complex_float* ptr_a_2_1 = ul_beam_ptr + 4 * max_sc_ite;
+    const complex_float* ptr_a_2_2 = ul_beam_ptr + 5 * max_sc_ite;
+    const complex_float* ptr_a_2_3 = ul_beam_ptr + 6 * max_sc_ite;
+    const complex_float* ptr_a_2_4 = ul_beam_ptr + 7 * max_sc_ite;
+    const complex_float* ptr_a_3_1 = ul_beam_ptr + 8 * max_sc_ite;
+    const complex_float* ptr_a_3_2 = ul_beam_ptr + 9 * max_sc_ite;
+    const complex_float* ptr_a_3_3 = ul_beam_ptr + 10 * max_sc_ite;
+    const complex_float* ptr_a_3_4 = ul_beam_ptr + 11 * max_sc_ite;
+    const complex_float* ptr_a_4_1 = ul_beam_ptr + 12 * max_sc_ite;
+    const complex_float* ptr_a_4_2 = ul_beam_ptr + 13 * max_sc_ite;
+    const complex_float* ptr_a_4_3 = ul_beam_ptr + 14 * max_sc_ite;
+    const complex_float* ptr_a_4_4 = ul_beam_ptr + 15 * max_sc_ite;
+
+    const complex_float* data_ptr = data_buf;
+    const complex_float* ptr_b_1 = data_ptr;
+    const complex_float* ptr_b_2 = data_ptr + max_sc_ite;
+    const complex_float* ptr_b_3 = data_ptr + 2 * max_sc_ite;
+    const complex_float* ptr_b_4 = data_ptr + 3 * max_sc_ite;
+
+    complex_float* ptr_c_1 = ptr_equal_0;
+    complex_float* ptr_c_2 = ptr_equal_1;
+    complex_float* ptr_c_3 = ptr_equal_2;
+    complex_float* ptr_c_4 = ptr_equal_3;
+
+    size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
+    duration_stat_equal_->task_duration_[1] +=
+        start_equal_tsc1 - start_equal_tsc0;
+
+    // Step 1: Equalization
+    // Each AVX512 register can hold 
+    //   16 floats = 8 complex floats = 1 kSCsPerCacheline
+    for (size_t sc_idx = 0; sc_idx < max_sc_ite; sc_idx += kSCsPerCacheline) {
+      __m512 b_1 = _mm512_loadu_ps(ptr_b_1+sc_idx);
+      __m512 b_2 = _mm512_loadu_ps(ptr_b_2+sc_idx);
+      __m512 b_3 = _mm512_loadu_ps(ptr_b_3+sc_idx);
+      __m512 b_4 = _mm512_loadu_ps(ptr_b_4+sc_idx);
+
+      __m512 a_1_1 = _mm512_loadu_ps(ptr_a_1_1+sc_idx);
+      __m512 a_1_2 = _mm512_loadu_ps(ptr_a_1_2+sc_idx);
+      __m512 a_1_3 = _mm512_loadu_ps(ptr_a_1_3+sc_idx);
+      __m512 a_1_4 = _mm512_loadu_ps(ptr_a_1_4+sc_idx);
+      __m512 temp_1 = CommsLib::M512ComplexCf32Mult(a_1_1, b_1, false);
+      __m512 temp_2 = CommsLib::M512ComplexCf32Mult(a_1_2, b_2, false);
+      __m512 temp_3 = CommsLib::M512ComplexCf32Mult(a_1_3, b_3, false);
+      __m512 temp_4 = CommsLib::M512ComplexCf32Mult(a_1_4, b_4, false);
+      temp_1 = _mm512_add_ps(temp_1, temp_2);
+      temp_3 = _mm512_add_ps(temp_3, temp_4);
+      __m512 c_1 = _mm512_add_ps(temp_1, temp_3);
+      _mm512_storeu_ps(ptr_c_1+sc_idx, c_1);
+
+      __m512 a_2_1 = _mm512_loadu_ps(ptr_a_2_1+sc_idx);
+      __m512 a_2_2 = _mm512_loadu_ps(ptr_a_2_2+sc_idx);
+      __m512 a_2_3 = _mm512_loadu_ps(ptr_a_2_3+sc_idx);
+      __m512 a_2_4 = _mm512_loadu_ps(ptr_a_2_4+sc_idx);
+      temp_1 = CommsLib::M512ComplexCf32Mult(a_2_1, b_1, false);
+      temp_2 = CommsLib::M512ComplexCf32Mult(a_2_2, b_2, false);
+      temp_3 = CommsLib::M512ComplexCf32Mult(a_2_3, b_3, false);
+      temp_4 = CommsLib::M512ComplexCf32Mult(a_2_4, b_4, false);
+      temp_1 = _mm512_add_ps(temp_1, temp_2);
+      temp_3 = _mm512_add_ps(temp_3, temp_4);
+      __m512 c_2 = _mm512_add_ps(temp_1, temp_3);
+      _mm512_storeu_ps(ptr_c_2+sc_idx, c_2);
+
+      __m512 a_3_1 = _mm512_loadu_ps(ptr_a_3_1+sc_idx);
+      __m512 a_3_2 = _mm512_loadu_ps(ptr_a_3_2+sc_idx);
+      __m512 a_3_3 = _mm512_loadu_ps(ptr_a_3_3+sc_idx);
+      __m512 a_3_4 = _mm512_loadu_ps(ptr_a_3_4+sc_idx);
+      temp_1 = CommsLib::M512ComplexCf32Mult(a_3_1, b_1, false);
+      temp_2 = CommsLib::M512ComplexCf32Mult(a_3_2, b_2, false);
+      temp_3 = CommsLib::M512ComplexCf32Mult(a_3_3, b_3, false);
+      temp_4 = CommsLib::M512ComplexCf32Mult(a_3_4, b_4, false);
+      temp_1 = _mm512_add_ps(temp_1, temp_2);
+      temp_3 = _mm512_add_ps(temp_3, temp_4);
+      __m512 c_3 = _mm512_add_ps(temp_1, temp_3);
+      _mm512_storeu_ps(ptr_c_3+sc_idx, c_3);
+
+      __m512 a_4_1 = _mm512_loadu_ps(ptr_a_4_1+sc_idx);
+      __m512 a_4_2 = _mm512_loadu_ps(ptr_a_4_2+sc_idx);
+      __m512 a_4_3 = _mm512_loadu_ps(ptr_a_4_3+sc_idx);
+      __m512 a_4_4 = _mm512_loadu_ps(ptr_a_4_4+sc_idx);
+      temp_1 = CommsLib::M512ComplexCf32Mult(a_4_1, b_1, false);
+      temp_2 = CommsLib::M512ComplexCf32Mult(a_4_2, b_2, false);
+      temp_3 = CommsLib::M512ComplexCf32Mult(a_4_3, b_3, false);
+      temp_4 = CommsLib::M512ComplexCf32Mult(a_4_4, b_4, false);
+      temp_1 = _mm512_add_ps(temp_1, temp_2);
+      temp_3 = _mm512_add_ps(temp_3, temp_4);
+      __m512 c_4 = _mm512_add_ps(temp_1, temp_3);
+      _mm512_storeu_ps(ptr_c_4+sc_idx, c_4);
+    }
+#else
+    // Step 0: Re-arrange data
+    arma::cx_float* data_ptr = (arma::cx_float*)data_buf;
+    arma::cx_fvec vec_data_0(data_ptr, max_sc_ite, false);
+    arma::cx_fvec vec_data_1(data_ptr+max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_data_2(data_ptr+2*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_data_3(data_ptr+3*max_sc_ite, max_sc_ite, false);
+    arma::cx_fcube cub_data(cfg_->BsAntNum(), 1, max_sc_ite);
+    cub_data.tube(0, 0) = vec_data_0;
+    cub_data.tube(1, 0) = vec_data_1;
+    cub_data.tube(2, 0) = vec_data_2;
+    cub_data.tube(3, 0) = vec_data_3;
+
+    // arma::cx_fcube cub_ul_beam(cfg_->UeAntNum(), cfg_->BsAntNum(), max_sc_ite);
+    // for (size_t i = 0; i < max_sc_ite; ++i) {
+    //   arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+    //     ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id + i)]);
+    //   arma::cx_fmat mat_ul_beam(ul_beam_ptr,
+    //                             cfg_->UeAntNum(), cfg_->BsAntNum(), false);
+    //   cub_ul_beam.slice(i) = mat_ul_beam;
+    // }
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+        ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->UeAntNum(), cfg_->BsAntNum(),
+                              max_sc_ite, false);
+
+    size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
+    duration_stat_equal_->task_duration_[1] +=
+        start_equal_tsc1 - start_equal_tsc0;
+
+    // Step 1: Equalization
     // for (size_t i = 0; i < max_sc_ite; ++i) {
     //   cub_equaled.slice(i) = cub_ul_beam.slice(i) * cub_data.slice(i);
     // }
@@ -558,6 +658,7 @@ EventData DoDemul::Launch(size_t tag) {
       cub_ul_beam.tube(3, 1) % cub_data.tube(1, 0) +
       cub_ul_beam.tube(3, 2) % cub_data.tube(2, 0) +
       cub_ul_beam.tube(3, 3) % cub_data.tube(3, 0);
+#endif
 
     size_t start_equal_tsc2 = GetTime::WorkerRdtsc();
     duration_stat_equal_->task_duration_[2] +=
@@ -580,28 +681,67 @@ EventData DoDemul::Launch(size_t tag) {
 
       // Calc new phase shift
       if (symbol_idx_ul < cfg_->Frame().ClientUlPilotSymbols()) {
+#ifdef __AVX512F__
+        complex_float* ue_pilot_ptr =
+          reinterpret_cast<complex_float*>(cfg_->UeSpecificPilot()[0]);
+        complex_float *ptr_ue_pilot_0 = ue_pilot_ptr;
+        complex_float *ptr_ue_pilot_1 = ue_pilot_ptr + max_sc_ite;
+        complex_float *ptr_ue_pilot_2 = ue_pilot_ptr + 2 * max_sc_ite;
+        complex_float *ptr_ue_pilot_3 = ue_pilot_ptr + 3 * max_sc_ite;
+
+        __m512 sum_0 = _mm512_setzero_ps();
+        __m512 sum_1 = _mm512_setzero_ps();
+        __m512 sum_2 = _mm512_setzero_ps();
+        __m512 sum_3 = _mm512_setzero_ps();
+        for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+          __m512 ue_0 = _mm512_loadu_ps(ptr_ue_pilot_0+i);
+          __m512 eq_0 = _mm512_loadu_ps(ptr_equal_0+i);
+          __m512 temp = CommsLib::M512ComplexCf32Conj(ue_0);
+          temp = CommsLib::M512ComplexCf32Mult(temp, eq_0, false);
+          sum_0 = _mm512_add_ps(sum_0, temp);
+
+          __m512 ue_1 = _mm512_loadu_ps(ptr_ue_pilot_1+i);
+          __m512 eq_1 = _mm512_loadu_ps(ptr_equal_1+i);
+          temp = CommsLib::M512ComplexCf32Conj(ue_1);
+          temp = CommsLib::M512ComplexCf32Mult(temp, eq_1, false);
+          sum_1 = _mm512_add_ps(sum_1, temp);
+
+          __m512 ue_2 = _mm512_loadu_ps(ptr_ue_pilot_2+i);
+          __m512 eq_2 = _mm512_loadu_ps(ptr_equal_2+i);
+          temp = CommsLib::M512ComplexCf32Conj(ue_2);
+          temp = CommsLib::M512ComplexCf32Mult(temp, eq_2, false);
+          sum_2 = _mm512_add_ps(sum_2, temp);
+
+          __m512 ue_3 = _mm512_loadu_ps(ptr_ue_pilot_3+i);
+          __m512 eq_3 = _mm512_loadu_ps(ptr_equal_3+i);
+          temp = CommsLib::M512ComplexCf32Conj(ue_3);
+          temp = CommsLib::M512ComplexCf32Mult(temp, eq_3, false);
+          sum_3 = _mm512_add_ps(sum_3, temp);
+        }
+
+        std::complex<float>* phase_shift_ptr =
+          reinterpret_cast<std::complex<float>*>(
+            &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
+                                  [symbol_idx_ul * cfg_->UeAntNum()]);
+        *phase_shift_ptr += CommsLib::M512ComplexCf32Sum(sum_0);
+        *(phase_shift_ptr+1) += CommsLib::M512ComplexCf32Sum(sum_1);
+        *(phase_shift_ptr+2) += CommsLib::M512ComplexCf32Sum(sum_2);
+        *(phase_shift_ptr+3) += CommsLib::M512ComplexCf32Sum(sum_3);
+#else
         arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
           &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
                                 [symbol_idx_ul * cfg_->UeAntNum()]);
         arma::cx_fmat mat_phase_shift(phase_shift_ptr, cfg_->UeAntNum(), 1,
                                   false);
-        // printf("base_sc_id = %ld, end = %ld\n", base_sc_id, base_sc_id+max_sc_ite-1);
-        // arma::cx_fcube cub_ue_pilot_data_ =
-        //   cub_pilot_data.slices(base_sc_id, base_sc_id+max_sc_ite-1);
-        // TODO: data ordering issue to solve
-
         arma::cx_fmat mat_ue_pilot_data_ =
           ue_pilot_data_.cols(base_sc_id, base_sc_id+max_sc_ite-1);
+
         // if use fvec or fcolvec, then transpose mat_ue_pilot_data_ by
         // mat_ue_pilot_data_.row(0).st()
-        arma::cx_frowvec vec_tube_equal_0 =
-          cub_equaled(arma::span(0), arma::span(0), arma::span::all);
-        arma::cx_frowvec vec_tube_equal_1 =
-          cub_equaled(arma::span(1), arma::span(0), arma::span::all);
-        arma::cx_frowvec vec_tube_equal_2 =
-          cub_equaled(arma::span(2), arma::span(0), arma::span::all);
-        arma::cx_frowvec vec_tube_equal_3 =
-          cub_equaled(arma::span(3), arma::span(0), arma::span::all);
+        arma::cx_frowvec vec_tube_equal_0 = cub_equaled.tube(0, 0);
+        arma::cx_frowvec vec_tube_equal_1 = cub_equaled.tube(1, 0);
+        arma::cx_frowvec vec_tube_equal_2 = cub_equaled.tube(2, 0);
+        arma::cx_frowvec vec_tube_equal_3 = cub_equaled.tube(3, 0);
 
         mat_phase_shift.col(0).row(0) += sum(
           vec_tube_equal_0 % arma::conj(mat_ue_pilot_data_.row(0))
@@ -615,32 +755,26 @@ EventData DoDemul::Launch(size_t tag) {
         mat_phase_shift.col(0).row(3) += sum(
           vec_tube_equal_3 % arma::conj(mat_ue_pilot_data_.row(3))
         );
-
         // for (size_t i = 0; i < max_sc_ite; ++i) {
         //   arma::cx_fmat shift_sc =
-        //     // cub_equaled.slice(i) % arma::conj(cub_ue_pilot_data_.slice(i));
-        //     cub_equaled.slice(i) % arma::conj(ue_pilot_data_.col(i));
-        //     // cub_equaled.slice(i) % sign(conj(mat_ue_pilot_data_.slice(i)));
+        //     cub_equaled.slice(i) % arma::conj(mat_ue_pilot_data_.col(i));
+        //     // cub_equaled.slice(i) % sign(conj(mat_ue_pilot_data_.col(i)));
         //   mat_phase_shift += shift_sc;
         // }
-        // mat_phase_shift += sum(vec_equaled % conj(vec_ue_pilot_data_));
-        // mat_phase_shift += sum(sign(vec_equaled % conj(vec_ue_pilot_data_)));
         // sign should be able to optimize out but the result will be different
+#endif
       }
 
       // Calculate the unit phase shift based on the first subcarrier
       // Check the special case condition to avoid reading wrong memory location
       RtAssert(cfg_->UeAntNum() == 4 &&
-              cfg_->Frame().ClientUlPilotSymbols() == 2,
-              "UeAntNum() and ClientUlPilotSymbols() should be 4 and 2,"
-              "respectively");
+              cfg_->Frame().ClientUlPilotSymbols() == 2);
       if (symbol_idx_ul == cfg_->Frame().ClientUlPilotSymbols() &&
           base_sc_id == 0) { 
         arma::cx_float* pilot_corr_ptr = reinterpret_cast<arma::cx_float*>(
             ue_spec_pilot_buffer_[frame_id % kFrameWnd]);
         arma::cx_fmat pilot_corr_mat(pilot_corr_ptr, cfg_->UeAntNum(),
-                                        cfg_->Frame().ClientUlPilotSymbols(),
-                                        false);
+                                    cfg_->Frame().ClientUlPilotSymbols(), false);
         theta_mat = arg(pilot_corr_mat);
         theta_inc =
             theta_mat.col(cfg_->Frame().ClientUlPilotSymbols()-1) -
@@ -654,15 +788,44 @@ EventData DoDemul::Launch(size_t tag) {
         arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
         arma::cx_fmat mat_phase_correct =
             arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
+
+#ifdef __AVX512F__
+        __m512 ph_corr_0 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(0, 0));
+        __m512 ph_corr_1 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(1, 0));
+        __m512 ph_corr_2 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(2, 0));
+        __m512 ph_corr_3 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(3, 0));
+
+        for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+          __m512 eq_0 = _mm512_loadu_ps(ptr_equal_0+i);
+          __m512 eq_1 = _mm512_loadu_ps(ptr_equal_1+i);
+          __m512 eq_2 = _mm512_loadu_ps(ptr_equal_2+i);
+          __m512 eq_3 = _mm512_loadu_ps(ptr_equal_3+i);
+          eq_0 = CommsLib::M512ComplexCf32Mult(eq_0, ph_corr_0, false);
+          eq_1 = CommsLib::M512ComplexCf32Mult(eq_1, ph_corr_1, false);
+          eq_2 = CommsLib::M512ComplexCf32Mult(eq_2, ph_corr_2, false);
+          eq_3 = CommsLib::M512ComplexCf32Mult(eq_3, ph_corr_3, false);
+          _mm512_storeu_ps(ptr_equal_0+i, eq_0);
+          _mm512_storeu_ps(ptr_equal_1+i, eq_1);
+          _mm512_storeu_ps(ptr_equal_2+i, eq_2);
+          _mm512_storeu_ps(ptr_equal_3+i, eq_3);
+        }
+#else
         cub_equaled.each_slice() %= mat_phase_correct;
-        // mat_equaled %= mat_phase_correct;
-        // vec_equaled *= arma::cx_float(cos(-cur_theta_f), sin(-cur_theta_f));
+#endif
       }
 
       duration_stat_equal_->task_count_++;
       duration_stat_equal_->task_duration_[3] +=
           GetTime::WorkerRdtsc() - start_equal_tsc2;
     }
+
+#ifdef __AVX512F__
+    // store back to Armadillo matrix
+    cub_equaled.tube(0, 0) = vec_equal_0;
+    cub_equaled.tube(1, 0) = vec_equal_1;
+    cub_equaled.tube(2, 0) = vec_equal_2;
+    cub_equaled.tube(3, 0) = vec_equal_3;
+#endif
   } else {
     // Iterate through cache lines
     for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {

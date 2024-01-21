@@ -601,7 +601,111 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     duration_stat_->task_count_++;
     duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
     return;
-  } // end special 1x1 or 2x2 cases
+  } else if (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4 &&
+             cfg_->SpatialStreamsNum() == 4 &&
+             cfg_->BeamformingAlgo() == CommsLib::BeamformingAlgorithm::kZF &&
+             cfg_->Frame().NumDLSyms() == 0 &&
+             num_ext_ref_ == 0 &&
+             kUseInverseForZF) {
+
+    const size_t sc_vec_len = cfg_->OfdmDataNum();
+
+    // Default: Handle each subcarrier one by one
+    size_t sc_inc = 1;
+    size_t start_sc = base_sc_id;
+
+    // Handle each subcarrier in the block (base_sc_id : last_sc_id -1)
+    for (size_t cur_sc_id = start_sc; cur_sc_id < last_sc_id;
+        cur_sc_id = cur_sc_id + sc_inc) {
+      const size_t start_tsc1 = GetTime::WorkerRdtsc();
+
+      // Gather CSI matrices of each pilot from partially-transposed CSIs.
+      arma::uvec ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
+      for (size_t selected_ue_idx = 0;
+          selected_ue_idx < cfg_->SpatialStreamsNum(); selected_ue_idx++) {
+        size_t ue_idx = ue_list.at(selected_ue_idx);
+        auto* dst_csi_ptr = reinterpret_cast<float*>(
+            csi_gather_buffer_ + cfg_->BsAntNum() * selected_ue_idx);
+          TransposeGather(
+              cur_sc_id,
+              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+              dst_csi_ptr, cfg_->BsAntNum(), cfg_->OfdmDataNum());
+      }
+
+      const size_t start_tsc2 = GetTime::WorkerRdtsc();
+      duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
+      arma::cx_fmat mat_csi((arma::cx_float*)csi_gather_buffer_, cfg_->BsAntNum(),
+                            cfg_->SpatialStreamsNum(), false);
+
+      const size_t start_tsc3 = GetTime::WorkerRdtsc();
+      duration_stat_->task_duration_[2] += start_tsc3 - start_tsc2;
+
+      arma::cx_fmat mat_ul_beam(
+        reinterpret_cast<arma::cx_float*>(
+          ul_beam_matrices_[frame_slot][cur_sc_id]),
+          cfg_->SpatialStreamsNum(), cfg_->BsAntNum(), false);
+      try {
+        mat_ul_beam =
+            arma::inv_sympd(mat_csi.t() * mat_csi) * mat_csi.t();
+      } catch (std::runtime_error&) {
+        AGORA_LOG_WARN(
+            "Failed to invert channel matrix, falling back to pinv()\n");
+        arma::pinv(mat_ul_beam, mat_csi, 1e-2, "dc");
+      }
+
+      duration_stat_->task_duration_[3] += GetTime::WorkerRdtsc() - start_tsc3;
+      duration_stat_->task_count_++;
+      duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
+    }
+
+    // Transform default beam matrix layout to the one used by equalizer.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
+                               cfg_->BsAntNum(), sc_vec_len, false);
+
+    arma::cx_fvec ul_beam_a = cub_ul_beam.tube(0, 0);
+    arma::cx_fvec ul_beam_b = cub_ul_beam.tube(0, 1);
+    arma::cx_fvec ul_beam_c = cub_ul_beam.tube(0, 2);
+    arma::cx_fvec ul_beam_d = cub_ul_beam.tube(0, 3);
+    arma::cx_fvec ul_beam_e = cub_ul_beam.tube(1, 0);
+    arma::cx_fvec ul_beam_f = cub_ul_beam.tube(1, 1);
+    arma::cx_fvec ul_beam_g = cub_ul_beam.tube(1, 2);
+    arma::cx_fvec ul_beam_h = cub_ul_beam.tube(1, 3);
+    arma::cx_fvec ul_beam_i = cub_ul_beam.tube(2, 0);
+    arma::cx_fvec ul_beam_j = cub_ul_beam.tube(2, 1);
+    arma::cx_fvec ul_beam_k = cub_ul_beam.tube(2, 2);
+    arma::cx_fvec ul_beam_l = cub_ul_beam.tube(2, 3);
+    arma::cx_fvec ul_beam_m = cub_ul_beam.tube(3, 0);
+    arma::cx_fvec ul_beam_n = cub_ul_beam.tube(3, 1);
+    arma::cx_fvec ul_beam_o = cub_ul_beam.tube(3, 2);
+    arma::cx_fvec ul_beam_p = cub_ul_beam.tube(3, 3);
+
+
+    arma::cx_fvec vec_ul_beam(
+        (arma::cx_float*)ul_beam_ptr,
+        sc_vec_len * cfg_->SpatialStreamsNum() * cfg_->BsAntNum(),
+        false);
+    vec_ul_beam.subvec(0, sc_vec_len - 1) = ul_beam_a;
+    vec_ul_beam.subvec(sc_vec_len, 2 * sc_vec_len - 1) = ul_beam_b;
+    vec_ul_beam.subvec(2 * sc_vec_len, 3 * sc_vec_len - 1) = ul_beam_c;
+    vec_ul_beam.subvec(3 * sc_vec_len, 4 * sc_vec_len - 1) = ul_beam_d;
+    vec_ul_beam.subvec(4 * sc_vec_len, 5 * sc_vec_len - 1) = ul_beam_e;
+    vec_ul_beam.subvec(5 * sc_vec_len, 6 * sc_vec_len - 1) = ul_beam_f;
+    vec_ul_beam.subvec(6 * sc_vec_len, 7 * sc_vec_len - 1) = ul_beam_g;
+    vec_ul_beam.subvec(7 * sc_vec_len, 8 * sc_vec_len - 1) = ul_beam_h;
+    vec_ul_beam.subvec(8 * sc_vec_len, 9 * sc_vec_len - 1) = ul_beam_i;
+    vec_ul_beam.subvec(9 * sc_vec_len, 10 * sc_vec_len - 1) = ul_beam_j;
+    vec_ul_beam.subvec(10 * sc_vec_len, 11 * sc_vec_len - 1) = ul_beam_k;
+    vec_ul_beam.subvec(11 * sc_vec_len, 12 * sc_vec_len - 1) = ul_beam_l;
+    vec_ul_beam.subvec(12 * sc_vec_len, 13 * sc_vec_len - 1) = ul_beam_m;
+    vec_ul_beam.subvec(13 * sc_vec_len, 14 * sc_vec_len - 1) = ul_beam_n;
+    vec_ul_beam.subvec(14 * sc_vec_len, 15 * sc_vec_len - 1) = ul_beam_o;
+    vec_ul_beam.subvec(15 * sc_vec_len, 16 * sc_vec_len - 1) = ul_beam_p;
+
+    return;
+  } // end special 1x1, 2x2 or 4x4 cases
 
   // Default: Handle each subcarrier one by one
   size_t sc_inc = 1;
