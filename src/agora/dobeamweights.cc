@@ -663,30 +663,22 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
 
     // Calculate the determinant
     arma::cx_fvec vec_det =
-      vec_csi_0_0 % (vec_csi_1_1 % vec_csi_2_2 % vec_csi_3_3 +
-                     vec_csi_1_2 % vec_csi_2_3 % vec_csi_3_1 +
-                     vec_csi_1_3 % vec_csi_2_1 % vec_csi_3_2 -
-                     vec_csi_1_3 % vec_csi_2_2 % vec_csi_3_1 -
-                     vec_csi_1_2 % vec_csi_2_1 % vec_csi_3_3 -
-                     vec_csi_1_1 % vec_csi_2_3 % vec_csi_3_2) -
-      vec_csi_1_0 % (vec_csi_0_1 % vec_csi_2_2 % vec_csi_3_3 +
-                     vec_csi_0_2 % vec_csi_2_3 % vec_csi_3_1 +
-                     vec_csi_0_3 % vec_csi_2_1 % vec_csi_3_2 -
-                     vec_csi_0_3 % vec_csi_2_2 % vec_csi_3_1 -
-                     vec_csi_0_2 % vec_csi_2_1 % vec_csi_3_3 -
-                     vec_csi_0_1 % vec_csi_2_3 % vec_csi_3_2) +
-      vec_csi_2_0 % (vec_csi_0_1 % vec_csi_1_2 % vec_csi_3_3 +
-                     vec_csi_0_2 % vec_csi_1_3 % vec_csi_3_1 +
-                     vec_csi_0_3 % vec_csi_1_1 % vec_csi_3_2 -
-                     vec_csi_0_3 % vec_csi_1_2 % vec_csi_3_1 -
-                     vec_csi_0_2 % vec_csi_1_1 % vec_csi_3_3 -
-                     vec_csi_0_1 % vec_csi_1_3 % vec_csi_3_2) -
-      vec_csi_3_0 % (vec_csi_0_1 % vec_csi_1_2 % vec_csi_2_3 +
-                     vec_csi_0_2 % vec_csi_1_3 % vec_csi_2_1 +
-                     vec_csi_0_3 % vec_csi_1_1 % vec_csi_2_2 -
-                     vec_csi_0_3 % vec_csi_1_2 % vec_csi_2_1 -
-                     vec_csi_0_2 % vec_csi_1_1 % vec_csi_2_3 -
-                     vec_csi_0_1 % vec_csi_1_3 % vec_csi_2_2);
+      vec_csi_0_0 %
+       (vec_csi_1_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+        vec_csi_1_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+        vec_csi_1_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1)) -
+      vec_csi_1_0 %
+       (vec_csi_0_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+        vec_csi_0_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+        vec_csi_0_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1)) +
+      vec_csi_2_0 %
+       (vec_csi_0_1 % (vec_csi_1_2 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_2) +
+        vec_csi_0_2 % (vec_csi_1_3 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_3) +
+        vec_csi_0_3 % (vec_csi_1_1 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_1)) -
+      vec_csi_3_0 %
+       (vec_csi_0_1 % (vec_csi_1_2 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_2) +
+        vec_csi_0_2 % (vec_csi_1_3 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_3) +
+        vec_csi_0_3 % (vec_csi_1_1 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_1));
 
     if (unlikely(arma::any(arma::abs(vec_det) < 1e-10))) {
       AGORA_LOG_WARN("Channel matrix seems not invertible\n");
@@ -695,105 +687,73 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     // use reciprocal for division since multiplication is faster
     vec_det = 1.0 / vec_det;
 
-    arma::cx_fvec vec_adj_0_0 = vec_csi_1_1 % vec_csi_2_2 % vec_csi_3_3 +
-                                vec_csi_1_2 % vec_csi_2_3 % vec_csi_3_1 +
-                                vec_csi_1_3 % vec_csi_2_1 % vec_csi_3_2 -
-                                vec_csi_1_3 % vec_csi_2_2 % vec_csi_3_1 -
-                                vec_csi_1_2 % vec_csi_2_1 % vec_csi_3_3 -
-                                vec_csi_1_1 % vec_csi_2_3 % vec_csi_3_2;
-    arma::cx_fvec vec_adj_0_1 = vec_csi_0_3 % vec_csi_2_2 % vec_csi_3_1 +
-                                vec_csi_0_2 % vec_csi_2_1 % vec_csi_3_3 +
-                                vec_csi_0_1 % vec_csi_2_3 % vec_csi_3_2 -
-                                vec_csi_0_1 % vec_csi_2_2 % vec_csi_3_3 -
-                                vec_csi_0_2 % vec_csi_2_3 % vec_csi_3_1 -
-                                vec_csi_0_3 % vec_csi_2_1 % vec_csi_3_2;
-    arma::cx_fvec vec_adj_0_2 = vec_csi_0_1 % vec_csi_1_2 % vec_csi_3_3 +
-                                vec_csi_0_2 % vec_csi_1_3 % vec_csi_3_1 +
-                                vec_csi_0_3 % vec_csi_1_1 % vec_csi_3_2 -
-                                vec_csi_0_3 % vec_csi_1_2 % vec_csi_3_1 -
-                                vec_csi_0_2 % vec_csi_1_1 % vec_csi_3_3 -
-                                vec_csi_0_1 % vec_csi_1_3 % vec_csi_3_2;
-    arma::cx_fvec vec_adj_0_3 = vec_csi_0_3 % vec_csi_1_2 % vec_csi_2_1 +
-                                vec_csi_0_2 % vec_csi_1_1 % vec_csi_2_3 +
-                                vec_csi_0_1 % vec_csi_1_3 % vec_csi_2_2 -
-                                vec_csi_0_1 % vec_csi_1_2 % vec_csi_2_3 -
-                                vec_csi_0_2 % vec_csi_1_3 % vec_csi_2_1 -
-                                vec_csi_0_3 % vec_csi_1_1 % vec_csi_2_2;
+    arma::cx_fvec vec_adj_0_0 =
+      vec_csi_1_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+      vec_csi_1_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+      vec_csi_1_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_0_1 =
+      vec_csi_0_1 % (vec_csi_2_3 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_3) +
+      vec_csi_0_2 % (vec_csi_2_1 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_1) +
+      vec_csi_0_3 % (vec_csi_2_2 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_0_2 =
+      vec_csi_0_1 % (vec_csi_1_2 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_1_3 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_1_1 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_0_3 =
+      vec_csi_0_1 % (vec_csi_1_3 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_3) +
+      vec_csi_0_2 % (vec_csi_1_1 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_1) +
+      vec_csi_0_3 % (vec_csi_1_2 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_2);
 
-    arma::cx_fvec vec_adj_1_0 = vec_csi_1_3 % vec_csi_2_2 % vec_csi_3_0 +
-                                vec_csi_1_2 % vec_csi_2_0 % vec_csi_3_3 +
-                                vec_csi_1_0 % vec_csi_2_3 % vec_csi_3_2 -
-                                vec_csi_1_0 % vec_csi_2_2 % vec_csi_3_3 -
-                                vec_csi_1_2 % vec_csi_2_3 % vec_csi_3_0 -
-                                vec_csi_1_3 % vec_csi_2_0 % vec_csi_3_2;
-    arma::cx_fvec vec_adj_1_1 = vec_csi_0_0 % vec_csi_2_2 % vec_csi_3_3 +
-                                vec_csi_0_2 % vec_csi_2_3 % vec_csi_3_0 +
-                                vec_csi_0_3 % vec_csi_2_0 % vec_csi_3_2 -
-                                vec_csi_0_3 % vec_csi_2_2 % vec_csi_3_0 -
-                                vec_csi_0_2 % vec_csi_2_0 % vec_csi_3_3 -
-                                vec_csi_0_0 % vec_csi_2_3 % vec_csi_3_2;
-    arma::cx_fvec vec_adj_1_2 = vec_csi_0_3 % vec_csi_1_2 % vec_csi_3_0 +
-                                vec_csi_0_2 % vec_csi_1_0 % vec_csi_3_3 +
-                                vec_csi_0_0 % vec_csi_1_3 % vec_csi_3_2 -
-                                vec_csi_0_0 % vec_csi_1_2 % vec_csi_3_3 -
-                                vec_csi_0_2 % vec_csi_1_3 % vec_csi_3_0 -
-                                vec_csi_0_3 % vec_csi_1_0 % vec_csi_3_2;
-    arma::cx_fvec vec_adj_1_3 = vec_csi_0_0 % vec_csi_1_2 % vec_csi_2_3 +
-                                vec_csi_0_2 % vec_csi_1_3 % vec_csi_2_0 +
-                                vec_csi_0_3 % vec_csi_1_0 % vec_csi_2_2 -
-                                vec_csi_0_3 % vec_csi_1_2 % vec_csi_2_0 -
-                                vec_csi_0_2 % vec_csi_1_0 % vec_csi_2_3 -
-                                vec_csi_0_0 % vec_csi_1_3 % vec_csi_2_2;
+    arma::cx_fvec vec_adj_1_0 =
+      vec_csi_1_0 % (vec_csi_2_3 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_3) +
+      vec_csi_1_2 % (vec_csi_2_0 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_0) +
+      vec_csi_1_3 % (vec_csi_2_2 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_1_1 =
+      vec_csi_0_0 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_2_3 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_2_0 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_1_2 =
+      vec_csi_0_0 % (vec_csi_1_3 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_3) +
+      vec_csi_0_2 % (vec_csi_1_0 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_0) +
+      vec_csi_0_3 % (vec_csi_1_2 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_1_3 =
+      vec_csi_0_0 % (vec_csi_1_2 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_2) +
+      vec_csi_0_2 % (vec_csi_1_3 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_3) +
+      vec_csi_0_3 % (vec_csi_1_0 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_0);
 
-    arma::cx_fvec vec_adj_2_0 = vec_csi_1_0 % vec_csi_2_1 % vec_csi_3_3 +
-                                vec_csi_1_1 % vec_csi_2_3 % vec_csi_3_0 +
-                                vec_csi_1_3 % vec_csi_2_0 % vec_csi_3_1 -
-                                vec_csi_1_3 % vec_csi_2_1 % vec_csi_3_0 -
-                                vec_csi_1_1 % vec_csi_2_0 % vec_csi_3_3 -
-                                vec_csi_1_0 % vec_csi_2_3 % vec_csi_3_1;
-    arma::cx_fvec vec_adj_2_1 = vec_csi_0_3 % vec_csi_2_1 % vec_csi_3_0 +
-                                vec_csi_0_1 % vec_csi_2_0 % vec_csi_3_3 +
-                                vec_csi_0_0 % vec_csi_2_3 % vec_csi_3_1 -
-                                vec_csi_0_0 % vec_csi_2_1 % vec_csi_3_3 -
-                                vec_csi_0_1 % vec_csi_2_3 % vec_csi_3_0 -
-                                vec_csi_0_3 % vec_csi_2_0 % vec_csi_3_1;
-    arma::cx_fvec vec_adj_2_2 = vec_csi_0_0 % vec_csi_1_1 % vec_csi_3_3 +
-                                vec_csi_0_1 % vec_csi_1_3 % vec_csi_3_0 +
-                                vec_csi_0_3 % vec_csi_1_0 % vec_csi_3_1 -
-                                vec_csi_0_3 % vec_csi_1_1 % vec_csi_3_0 -
-                                vec_csi_0_1 % vec_csi_1_0 % vec_csi_3_3 -
-                                vec_csi_0_0 % vec_csi_1_3 % vec_csi_3_1;
-    arma::cx_fvec vec_adj_2_3 = vec_csi_0_3 % vec_csi_1_1 % vec_csi_2_0 +
-                                vec_csi_0_1 % vec_csi_1_0 % vec_csi_2_3 +
-                                vec_csi_0_0 % vec_csi_1_3 % vec_csi_2_1 -
-                                vec_csi_0_0 % vec_csi_1_1 % vec_csi_2_3 -
-                                vec_csi_0_1 % vec_csi_1_3 % vec_csi_2_0 -
-                                vec_csi_0_3 % vec_csi_1_0 % vec_csi_2_1;
+    arma::cx_fvec vec_adj_2_0 =
+      vec_csi_1_0 % (vec_csi_2_1 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_1) +
+      vec_csi_1_1 % (vec_csi_2_3 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_3) +
+      vec_csi_1_3 % (vec_csi_2_0 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_2_1 =
+      vec_csi_0_0 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+      vec_csi_0_1 % (vec_csi_2_0 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_0) +
+      vec_csi_0_3 % (vec_csi_2_1 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_2_2 =
+      vec_csi_0_0 % (vec_csi_1_1 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_1) +
+      vec_csi_0_1 % (vec_csi_1_3 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_1_0 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_2_3 =
+      vec_csi_0_0 % (vec_csi_1_3 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_3) +
+      vec_csi_0_1 % (vec_csi_1_0 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_0) +
+      vec_csi_0_3 % (vec_csi_1_1 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_1);
 
-    arma::cx_fvec vec_adj_3_0 = vec_csi_1_0 % vec_csi_2_2 % vec_csi_3_1 +
-                                vec_csi_1_1 % vec_csi_2_0 % vec_csi_3_2 +
-                                vec_csi_1_2 % vec_csi_2_1 % vec_csi_3_0 -
-                                vec_csi_1_2 % vec_csi_2_0 % vec_csi_3_1 -
-                                vec_csi_1_1 % vec_csi_2_2 % vec_csi_3_0 -
-                                vec_csi_1_0 % vec_csi_2_1 % vec_csi_3_2;
-    arma::cx_fvec vec_adj_3_1 = vec_csi_0_0 % vec_csi_2_1 % vec_csi_3_2 +
-                                vec_csi_0_1 % vec_csi_2_2 % vec_csi_3_0 +
-                                vec_csi_0_2 % vec_csi_2_0 % vec_csi_3_1 -
-                                vec_csi_0_2 % vec_csi_2_1 % vec_csi_3_0 -
-                                vec_csi_0_1 % vec_csi_2_0 % vec_csi_3_2 -
-                                vec_csi_0_0 % vec_csi_2_2 % vec_csi_3_1;
-    arma::cx_fvec vec_adj_3_2 = vec_csi_0_0 % vec_csi_1_2 % vec_csi_3_1 +
-                                vec_csi_0_1 % vec_csi_1_0 % vec_csi_3_2 +
-                                vec_csi_0_2 % vec_csi_1_1 % vec_csi_3_0 -
-                                vec_csi_0_2 % vec_csi_1_0 % vec_csi_3_1 -
-                                vec_csi_0_1 % vec_csi_1_2 % vec_csi_3_0 -
-                                vec_csi_0_0 % vec_csi_1_1 % vec_csi_3_2;
-    arma::cx_fvec vec_adj_3_3 = vec_csi_0_0 % vec_csi_1_1 % vec_csi_2_2 +
-                                vec_csi_0_1 % vec_csi_1_2 % vec_csi_2_0 +
-                                vec_csi_0_2 % vec_csi_1_0 % vec_csi_2_1 -
-                                vec_csi_0_2 % vec_csi_1_1 % vec_csi_2_0 -
-                                vec_csi_0_1 % vec_csi_1_0 % vec_csi_2_2 -
-                                vec_csi_0_0 % vec_csi_1_2 % vec_csi_2_1;
+    arma::cx_fvec vec_adj_3_0 =
+      vec_csi_1_0 % (vec_csi_2_2 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_2) +
+      vec_csi_1_1 % (vec_csi_2_0 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_0) +
+      vec_csi_1_2 % (vec_csi_2_1 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_3_1 =
+      vec_csi_0_0 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1) +
+      vec_csi_0_1 % (vec_csi_2_2 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_2_0 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_3_2 =
+      vec_csi_0_0 % (vec_csi_1_2 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_2) +
+      vec_csi_0_1 % (vec_csi_1_0 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_0) +
+      vec_csi_0_2 % (vec_csi_1_1 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_3_3 =
+      vec_csi_0_0 % (vec_csi_1_1 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_1) +
+      vec_csi_0_1 % (vec_csi_1_2 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_2) +
+      vec_csi_0_2 % (vec_csi_1_0 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_0);
 
     // Prepare UL beam matrix. Let Armadillo help handle the memory.
     // The format here is identical to the input of equalizer.
