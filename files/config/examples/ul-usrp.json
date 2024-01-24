@@ -8,7 +8,7 @@
     "tx_gain_a": 15,
     "rx_gain_b": 15,
     "tx_gain_b": 15,
-    "sample_rate": 100e6,
+    "sample_rate": 50e6,
     "cp_size": 32,
     "fft_size": 1024,
     "ofdm_data_num": 768,
@@ -29,6 +29,7 @@
     "ofdm_rx_zero_prefix_bs": 160,
     "frame_schedule": [
         "BGGPUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+        /* "BGGPUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG" */
     ],
     "client_ul_pilot_syms": 2,
     "beacon_antenna" : 0,
@@ -65,6 +66,6 @@
     "core_offset": 1,
     "worker_thread_num": 1,
     "socket_thread_num": 1,
-    "max_frame": 200000,
+    "max_frame": 10000,
     "corr_scale": [10]
  }
