@@ -612,10 +612,6 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
 
     const size_t start_tsc1 = GetTime::WorkerRdtsc();
 
-    // Default: Handle each subcarrier one by one
-    size_t sc_inc = 1;
-    size_t start_sc = base_sc_id;
-
 #ifdef __AVX512F__
     // Gather CSI
     complex_float* ptr_0_0 = csi_buffers_[frame_slot][0];
@@ -679,16 +675,55 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       __m512 csi_3_2 = _mm512_loadu_ps(ptr_3_2 + i);
       __m512 csi_3_3 = _mm512_loadu_ps(ptr_3_3 + i);
 
+      // Prepare operands to avoid repeated computation
+      __m512 prod_1_0_x_2_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_1, false);
+      __m512 prod_1_0_x_2_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_2, false);
+      __m512 prod_1_0_x_2_3 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_3, false);
+      __m512 prod_1_0_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_1, false);
+      __m512 prod_1_0_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_2, false);
+      __m512 prod_1_0_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_3, false);
+
+      __m512 prod_1_1_x_2_0 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_0, false);
+      __m512 prod_1_1_x_2_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_2, false);
+      __m512 prod_1_1_x_2_3 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_3, false);
+      __m512 prod_1_1_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_0, false);
+      __m512 prod_1_1_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_2, false);
+      __m512 prod_1_1_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_3, false);
+
+      __m512 prod_1_2_x_2_0 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_0, false);
+      __m512 prod_1_2_x_2_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_1, false);
+      __m512 prod_1_2_x_2_3 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_3, false);
+      __m512 prod_1_2_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_0, false);
+      __m512 prod_1_2_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_1, false);
+      __m512 prod_1_2_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_3, false);
+
+      __m512 prod_1_3_x_2_0 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_0, false);
+      __m512 prod_1_3_x_2_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_1, false);
+      __m512 prod_1_3_x_2_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_2, false);
+      __m512 prod_1_3_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_0, false);
+      __m512 prod_1_3_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_1, false);
+      __m512 prod_1_3_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_2, false);
+
+      __m512 prod_2_0_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_1, false);
+      __m512 prod_2_0_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_2, false);
+      __m512 prod_2_0_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_3, false);
+
+      __m512 prod_2_1_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_0, false);
+      __m512 prod_2_1_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_2, false);
+      __m512 prod_2_1_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_3, false);
+
+      __m512 prod_2_2_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_0, false);
+      __m512 prod_2_2_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_1, false);
+      __m512 prod_2_2_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_3, false);
+
+      __m512 prod_2_3_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_0, false);
+      __m512 prod_2_3_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_1, false);
+      __m512 prod_2_3_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_2, false);
+
       // Calculate determinant, please refer to arma impl for formula
-      __m512 term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_3, false);
-      __m512 term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_2, false);
-      __m512 term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_1, false);
-      __m512 term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_3, false);
-      __m512 term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_2, false);
-      __m512 term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_1, false);
-      __m512 term1 = _mm512_sub_ps(term1_1, term1_2);
-      __m512 term2 = _mm512_sub_ps(term2_1, term2_2);
-      __m512 term3 = _mm512_sub_ps(term3_1, term3_2);
+      __m512 term1 = _mm512_sub_ps(prod_2_2_x_3_3, prod_2_3_x_3_2);
+      __m512 term2 = _mm512_sub_ps(prod_2_3_x_3_1, prod_2_1_x_3_3);
+      __m512 term3 = _mm512_sub_ps(prod_2_1_x_3_2, prod_2_2_x_3_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_1_1, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_1_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_1_3, term3, false);
@@ -696,15 +731,9 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       term = CommsLib::M512ComplexCf32Mult(csi_0_0, term, false);
       __m512 det = term;
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_1, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_2, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_2_x_3_3, prod_2_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_2_3_x_3_1, prod_2_1_x_3_3);
+      term3 = _mm512_sub_ps(prod_2_1_x_3_2, prod_2_2_x_3_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
@@ -712,15 +741,9 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       term = CommsLib::M512ComplexCf32Mult(csi_1_0, term, false);
       det = _mm512_sub_ps(det, term);
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_1, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_2, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_2_x_3_3, prod_1_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_1_3_x_3_1, prod_1_1_x_3_3);
+      term3 = _mm512_sub_ps(prod_1_1_x_3_2, prod_1_2_x_3_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
@@ -728,15 +751,9 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       term = CommsLib::M512ComplexCf32Mult(csi_2_0, term, false);
       det = _mm512_add_ps(det, term);
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_1, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_2, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_2_x_2_3, prod_1_3_x_2_2);
+      term2 = _mm512_sub_ps(prod_1_3_x_2_1, prod_1_1_x_2_3);
+      term3 = _mm512_sub_ps(prod_1_1_x_2_2, prod_1_2_x_2_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
@@ -755,225 +772,129 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       // use reciprocal for division since multiplication is faster
       det = CommsLib::M512ComplexCf32Reciprocal(det);
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_1, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_2, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_2_x_3_3, prod_2_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_2_3_x_3_1, prod_2_1_x_3_3);
+      term3 = _mm512_sub_ps(prod_2_1_x_3_2, prod_2_2_x_3_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_1_1, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_1_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_1_3, term3, false);
       __m512 adj_0_0 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_2, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_3, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_3, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_1, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_1, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_2, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_3_x_3_2, prod_2_2_x_3_3);
+      term2 = _mm512_sub_ps(prod_2_1_x_3_3, prod_2_3_x_3_1);
+      term3 = _mm512_sub_ps(prod_2_2_x_3_1, prod_2_1_x_3_2);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_0_1 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_1, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_2, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_2_x_3_3, prod_1_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_1_3_x_3_1, prod_1_1_x_3_3);
+      term3 = _mm512_sub_ps(prod_1_1_x_3_2, prod_1_2_x_3_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_0_2 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_2, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_3, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_3, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_1, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_1, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_2, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_3_x_2_2, prod_1_2_x_2_3);
+      term2 = _mm512_sub_ps(prod_1_1_x_2_3, prod_1_3_x_2_1);
+      term3 = _mm512_sub_ps(prod_1_2_x_2_1, prod_1_1_x_2_2);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_0_3 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_2, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_3, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_3, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_0, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_0, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_2, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_3_x_3_2, prod_2_2_x_3_3);
+      term2 = _mm512_sub_ps(prod_2_0_x_3_3, prod_2_3_x_3_0);
+      term3 = _mm512_sub_ps(prod_2_2_x_3_0, prod_2_0_x_3_2);
       term1 = CommsLib::M512ComplexCf32Mult(csi_1_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_1_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_1_3, term3, false);
       __m512 adj_1_0 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_0, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_2, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_0, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_2_x_3_3, prod_2_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_2_3_x_3_0, prod_2_0_x_3_3);
+      term3 = _mm512_sub_ps(prod_2_0_x_3_2, prod_2_2_x_3_0);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_1_1 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_2, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_3, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_3, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_0, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_0, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_2, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_3_x_3_2, prod_1_2_x_3_3);
+      term2 = _mm512_sub_ps(prod_1_0_x_3_3, prod_1_3_x_3_0);
+      term3 = _mm512_sub_ps(prod_1_2_x_3_0, prod_1_0_x_3_2);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_1_2 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_0, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_2, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_0, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_2_x_2_3, prod_1_3_x_2_2);
+      term2 = _mm512_sub_ps(prod_1_3_x_2_0, prod_1_0_x_2_3);
+      term3 = _mm512_sub_ps(prod_1_0_x_2_2, prod_1_2_x_2_0);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_1_3 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_1, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_0, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_1, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_0, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_1_x_3_3, prod_2_3_x_3_1);
+      term2 = _mm512_sub_ps(prod_2_3_x_3_0, prod_2_0_x_3_3);
+      term3 = _mm512_sub_ps(prod_2_0_x_3_1, prod_2_1_x_3_0);
       term1 = CommsLib::M512ComplexCf32Mult(csi_1_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_1_1, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_1_3, term3, false);
       __m512 adj_2_0 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_1, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_3, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_3, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_0, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_0, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_3_x_3_1, prod_2_1_x_3_3);
+      term2 = _mm512_sub_ps(prod_2_0_x_3_3, prod_2_3_x_3_0);
+      term3 = _mm512_sub_ps(prod_2_1_x_3_0, prod_2_0_x_3_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_2_1 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_3, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_1, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_0, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_3, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_1, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_0, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_1_x_3_3, prod_1_3_x_3_1);
+      term2 = _mm512_sub_ps(prod_1_3_x_3_0, prod_1_0_x_3_3);
+      term3 = _mm512_sub_ps(prod_1_0_x_3_1, prod_1_1_x_3_0);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_2_2 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_1, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_3, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_3, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_0, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_0, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_3_x_2_1, prod_1_1_x_2_3);
+      term2 = _mm512_sub_ps(prod_1_0_x_2_3, prod_1_3_x_2_0);
+      term3 = _mm512_sub_ps(prod_1_1_x_2_0, prod_1_0_x_2_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
       __m512 adj_2_3 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_1, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_2, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_0, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_0, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_2_x_3_1, prod_2_1_x_3_2);
+      term2 = _mm512_sub_ps(prod_2_0_x_3_2, prod_2_2_x_3_0);
+      term3 = _mm512_sub_ps(prod_2_1_x_3_0, prod_2_0_x_3_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_1_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_1_1, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_1_2, term3, false);
       __m512 adj_3_0 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_2, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_1, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_0, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_2, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_1, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_0, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_2_1_x_3_2, prod_2_2_x_3_1);
+      term2 = _mm512_sub_ps(prod_2_2_x_3_0, prod_2_0_x_3_2);
+      term3 = _mm512_sub_ps(prod_2_0_x_3_1, prod_2_1_x_3_0);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_2, term3, false);
       __m512 adj_3_1 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_1, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_2, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_2, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_0, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_0, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_1, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_2_x_3_1, prod_1_1_x_3_2);
+      term2 = _mm512_sub_ps(prod_1_0_x_3_2, prod_1_2_x_3_0);
+      term3 = _mm512_sub_ps(prod_1_1_x_3_0, prod_1_0_x_3_1);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_2, term3, false);
       __m512 adj_3_2 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
 
-      term1_1 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_2, false);
-      term1_2 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_1, false);
-      term2_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_0, false);
-      term2_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_2, false);
-      term3_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_1, false);
-      term3_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_0, false);
-      term1 = _mm512_sub_ps(term1_1, term1_2);
-      term2 = _mm512_sub_ps(term2_1, term2_2);
-      term3 = _mm512_sub_ps(term3_1, term3_2);
+      term1 = _mm512_sub_ps(prod_1_1_x_2_2, prod_1_2_x_2_1);
+      term2 = _mm512_sub_ps(prod_1_2_x_2_0, prod_1_0_x_2_2);
+      term3 = _mm512_sub_ps(prod_1_0_x_2_1, prod_1_1_x_2_0);
       term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
       term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
       term3 = CommsLib::M512ComplexCf32Mult(csi_0_2, term3, false);
