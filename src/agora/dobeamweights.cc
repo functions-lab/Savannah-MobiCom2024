@@ -601,7 +601,537 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     duration_stat_->task_count_++;
     duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
     return;
-  } // end special 1x1 or 2x2 cases
+  } else if (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4 &&
+             cfg_->SpatialStreamsNum() == 4 &&
+             cfg_->BeamformingAlgo() == CommsLib::BeamformingAlgorithm::kZF &&
+             cfg_->Frame().NumDLSyms() == 0 &&
+             num_ext_ref_ == 0 &&
+             kUseInverseForZF) {
+
+    const size_t sc_vec_len = cfg_->OfdmDataNum();
+
+    const size_t start_tsc1 = GetTime::WorkerRdtsc();
+
+#ifdef __AVX512F__
+    // Gather CSI
+    complex_float* ptr_0_0 = csi_buffers_[frame_slot][0];
+    complex_float* ptr_0_1 = csi_buffers_[frame_slot][1];
+    complex_float* ptr_0_2 = csi_buffers_[frame_slot][2];
+    complex_float* ptr_0_3 = csi_buffers_[frame_slot][3];
+    complex_float* ptr_1_0 = ptr_0_0 + sc_vec_len;
+    complex_float* ptr_1_1 = ptr_0_1 + sc_vec_len;
+    complex_float* ptr_1_2 = ptr_0_2 + sc_vec_len;
+    complex_float* ptr_1_3 = ptr_0_3 + sc_vec_len;
+    complex_float* ptr_2_0 = ptr_1_0 + sc_vec_len;
+    complex_float* ptr_2_1 = ptr_1_1 + sc_vec_len;
+    complex_float* ptr_2_2 = ptr_1_2 + sc_vec_len;
+    complex_float* ptr_2_3 = ptr_1_3 + sc_vec_len;
+    complex_float* ptr_3_0 = ptr_2_0 + sc_vec_len;
+    complex_float* ptr_3_1 = ptr_2_1 + sc_vec_len;
+    complex_float* ptr_3_2 = ptr_2_2 + sc_vec_len;
+    complex_float* ptr_3_3 = ptr_2_3 + sc_vec_len;
+
+    // Prepare UL beam matrix. Linearly distribute the memory.
+    complex_float* ul_beam_mem = ul_beam_matrices_[frame_slot][0];
+    complex_float* ul_beam_0_0 = ul_beam_mem;
+    complex_float* ul_beam_0_1 = ul_beam_0_0 + sc_vec_len;
+    complex_float* ul_beam_0_2 = ul_beam_0_1 + sc_vec_len;
+    complex_float* ul_beam_0_3 = ul_beam_0_2 + sc_vec_len;
+    complex_float* ul_beam_1_0 = ul_beam_0_3 + sc_vec_len;
+    complex_float* ul_beam_1_1 = ul_beam_1_0 + sc_vec_len;
+    complex_float* ul_beam_1_2 = ul_beam_1_1 + sc_vec_len;
+    complex_float* ul_beam_1_3 = ul_beam_1_2 + sc_vec_len;
+    complex_float* ul_beam_2_0 = ul_beam_1_3 + sc_vec_len;
+    complex_float* ul_beam_2_1 = ul_beam_2_0 + sc_vec_len;
+    complex_float* ul_beam_2_2 = ul_beam_2_1 + sc_vec_len;
+    complex_float* ul_beam_2_3 = ul_beam_2_2 + sc_vec_len;
+    complex_float* ul_beam_3_0 = ul_beam_2_3 + sc_vec_len;
+    complex_float* ul_beam_3_1 = ul_beam_3_0 + sc_vec_len;
+    complex_float* ul_beam_3_2 = ul_beam_3_1 + sc_vec_len;
+    complex_float* ul_beam_3_3 = ul_beam_3_2 + sc_vec_len;
+
+    // arma::cx_frowvec vec_det = arma::zeros<arma::cx_frowvec>(sc_vec_len);
+    // complex_float* ptr_det =
+    //   reinterpret_cast<complex_float*>(vec_det.memptr());
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
+    for (size_t i = 0; i < sc_vec_len; i += kSCsPerCacheline) {
+      __m512 csi_0_0 = _mm512_loadu_ps(ptr_0_0 + i);
+      __m512 csi_0_1 = _mm512_loadu_ps(ptr_0_1 + i);
+      __m512 csi_0_2 = _mm512_loadu_ps(ptr_0_2 + i);
+      __m512 csi_0_3 = _mm512_loadu_ps(ptr_0_3 + i);
+      __m512 csi_1_0 = _mm512_loadu_ps(ptr_1_0 + i);
+      __m512 csi_1_1 = _mm512_loadu_ps(ptr_1_1 + i);
+      __m512 csi_1_2 = _mm512_loadu_ps(ptr_1_2 + i);
+      __m512 csi_1_3 = _mm512_loadu_ps(ptr_1_3 + i);
+      __m512 csi_2_0 = _mm512_loadu_ps(ptr_2_0 + i);
+      __m512 csi_2_1 = _mm512_loadu_ps(ptr_2_1 + i);
+      __m512 csi_2_2 = _mm512_loadu_ps(ptr_2_2 + i);
+      __m512 csi_2_3 = _mm512_loadu_ps(ptr_2_3 + i);
+      __m512 csi_3_0 = _mm512_loadu_ps(ptr_3_0 + i);
+      __m512 csi_3_1 = _mm512_loadu_ps(ptr_3_1 + i);
+      __m512 csi_3_2 = _mm512_loadu_ps(ptr_3_2 + i);
+      __m512 csi_3_3 = _mm512_loadu_ps(ptr_3_3 + i);
+
+      // Prepare operands to avoid repeated computation
+      __m512 prod_1_0_x_2_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_1, false);
+      __m512 prod_1_0_x_2_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_2, false);
+      __m512 prod_1_0_x_2_3 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_2_3, false);
+      __m512 prod_1_0_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_1, false);
+      __m512 prod_1_0_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_2, false);
+      __m512 prod_1_0_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_1_0, csi_3_3, false);
+
+      __m512 prod_1_1_x_2_0 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_0, false);
+      __m512 prod_1_1_x_2_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_2, false);
+      __m512 prod_1_1_x_2_3 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_2_3, false);
+      __m512 prod_1_1_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_0, false);
+      __m512 prod_1_1_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_2, false);
+      __m512 prod_1_1_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_1_1, csi_3_3, false);
+
+      __m512 prod_1_2_x_2_0 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_0, false);
+      __m512 prod_1_2_x_2_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_1, false);
+      __m512 prod_1_2_x_2_3 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_2_3, false);
+      __m512 prod_1_2_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_0, false);
+      __m512 prod_1_2_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_1, false);
+      __m512 prod_1_2_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_1_2, csi_3_3, false);
+
+      __m512 prod_1_3_x_2_0 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_0, false);
+      __m512 prod_1_3_x_2_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_1, false);
+      __m512 prod_1_3_x_2_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_2_2, false);
+      __m512 prod_1_3_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_0, false);
+      __m512 prod_1_3_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_1, false);
+      __m512 prod_1_3_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_1_3, csi_3_2, false);
+
+      __m512 prod_2_0_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_1, false);
+      __m512 prod_2_0_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_2, false);
+      __m512 prod_2_0_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_2_0, csi_3_3, false);
+
+      __m512 prod_2_1_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_0, false);
+      __m512 prod_2_1_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_2, false);
+      __m512 prod_2_1_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_2_1, csi_3_3, false);
+
+      __m512 prod_2_2_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_0, false);
+      __m512 prod_2_2_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_1, false);
+      __m512 prod_2_2_x_3_3 = CommsLib::M512ComplexCf32Mult(csi_2_2, csi_3_3, false);
+
+      __m512 prod_2_3_x_3_0 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_0, false);
+      __m512 prod_2_3_x_3_1 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_1, false);
+      __m512 prod_2_3_x_3_2 = CommsLib::M512ComplexCf32Mult(csi_2_3, csi_3_2, false);
+
+      // Calculate determinant, please refer to arma impl for formula
+      __m512 term1 = _mm512_sub_ps(prod_2_2_x_3_3, prod_2_3_x_3_2);
+      __m512 term2 = _mm512_sub_ps(prod_2_3_x_3_1, prod_2_1_x_3_3);
+      __m512 term3 = _mm512_sub_ps(prod_2_1_x_3_2, prod_2_2_x_3_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_1_1, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_1_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_1_3, term3, false);
+      __m512 term = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+      term = CommsLib::M512ComplexCf32Mult(csi_0_0, term, false);
+      __m512 det = term;
+
+      term1 = _mm512_sub_ps(prod_2_2_x_3_3, prod_2_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_2_3_x_3_1, prod_2_1_x_3_3);
+      term3 = _mm512_sub_ps(prod_2_1_x_3_2, prod_2_2_x_3_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      term = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+      term = CommsLib::M512ComplexCf32Mult(csi_1_0, term, false);
+      det = _mm512_sub_ps(det, term);
+
+      term1 = _mm512_sub_ps(prod_1_2_x_3_3, prod_1_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_1_3_x_3_1, prod_1_1_x_3_3);
+      term3 = _mm512_sub_ps(prod_1_1_x_3_2, prod_1_2_x_3_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      term = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+      term = CommsLib::M512ComplexCf32Mult(csi_2_0, term, false);
+      det = _mm512_add_ps(det, term);
+
+      term1 = _mm512_sub_ps(prod_1_2_x_2_3, prod_1_3_x_2_2);
+      term2 = _mm512_sub_ps(prod_1_3_x_2_1, prod_1_1_x_2_3);
+      term3 = _mm512_sub_ps(prod_1_1_x_2_2, prod_1_2_x_2_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      term = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+      term = CommsLib::M512ComplexCf32Mult(csi_3_0, term, false);
+      det = _mm512_sub_ps(det, term);
+
+      // check if the channel matrix is invertible,
+      // float lowest > 1e-38, normal range > 1e-8
+      if (unlikely(CommsLib::M512ComplexCf32NearZeros(det, 1e-10))) {
+        AGORA_LOG_WARN("Channel matrix seems not invertible\n");
+      }
+      // _mm512_storeu_ps(ptr_det + i, det);
+
+      // lack of division of complex numbers.
+      // use reciprocal for division since multiplication is faster
+      det = CommsLib::M512ComplexCf32Reciprocal(det);
+
+      term1 = _mm512_sub_ps(prod_2_2_x_3_3, prod_2_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_2_3_x_3_1, prod_2_1_x_3_3);
+      term3 = _mm512_sub_ps(prod_2_1_x_3_2, prod_2_2_x_3_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_1_1, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_1_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_1_3, term3, false);
+      __m512 adj_0_0 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_2_3_x_3_2, prod_2_2_x_3_3);
+      term2 = _mm512_sub_ps(prod_2_1_x_3_3, prod_2_3_x_3_1);
+      term3 = _mm512_sub_ps(prod_2_2_x_3_1, prod_2_1_x_3_2);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_0_1 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_1_2_x_3_3, prod_1_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_1_3_x_3_1, prod_1_1_x_3_3);
+      term3 = _mm512_sub_ps(prod_1_1_x_3_2, prod_1_2_x_3_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_0_2 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_1_3_x_2_2, prod_1_2_x_2_3);
+      term2 = _mm512_sub_ps(prod_1_1_x_2_3, prod_1_3_x_2_1);
+      term3 = _mm512_sub_ps(prod_1_2_x_2_1, prod_1_1_x_2_2);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_1, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_0_3 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_2_3_x_3_2, prod_2_2_x_3_3);
+      term2 = _mm512_sub_ps(prod_2_0_x_3_3, prod_2_3_x_3_0);
+      term3 = _mm512_sub_ps(prod_2_2_x_3_0, prod_2_0_x_3_2);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_1_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_1_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_1_3, term3, false);
+      __m512 adj_1_0 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_2_2_x_3_3, prod_2_3_x_3_2);
+      term2 = _mm512_sub_ps(prod_2_3_x_3_0, prod_2_0_x_3_3);
+      term3 = _mm512_sub_ps(prod_2_0_x_3_2, prod_2_2_x_3_0);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_1_1 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_1_3_x_3_2, prod_1_2_x_3_3);
+      term2 = _mm512_sub_ps(prod_1_0_x_3_3, prod_1_3_x_3_0);
+      term3 = _mm512_sub_ps(prod_1_2_x_3_0, prod_1_0_x_3_2);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_1_2 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_1_2_x_2_3, prod_1_3_x_2_2);
+      term2 = _mm512_sub_ps(prod_1_3_x_2_0, prod_1_0_x_2_3);
+      term3 = _mm512_sub_ps(prod_1_0_x_2_2, prod_1_2_x_2_0);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_2, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_1_3 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_2_1_x_3_3, prod_2_3_x_3_1);
+      term2 = _mm512_sub_ps(prod_2_3_x_3_0, prod_2_0_x_3_3);
+      term3 = _mm512_sub_ps(prod_2_0_x_3_1, prod_2_1_x_3_0);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_1_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_1_1, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_1_3, term3, false);
+      __m512 adj_2_0 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_2_3_x_3_1, prod_2_1_x_3_3);
+      term2 = _mm512_sub_ps(prod_2_0_x_3_3, prod_2_3_x_3_0);
+      term3 = _mm512_sub_ps(prod_2_1_x_3_0, prod_2_0_x_3_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_2_1 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_1_1_x_3_3, prod_1_3_x_3_1);
+      term2 = _mm512_sub_ps(prod_1_3_x_3_0, prod_1_0_x_3_3);
+      term3 = _mm512_sub_ps(prod_1_0_x_3_1, prod_1_1_x_3_0);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_2_2 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_1_3_x_2_1, prod_1_1_x_2_3);
+      term2 = _mm512_sub_ps(prod_1_0_x_2_3, prod_1_3_x_2_0);
+      term3 = _mm512_sub_ps(prod_1_1_x_2_0, prod_1_0_x_2_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_3, term3, false);
+      __m512 adj_2_3 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_2_2_x_3_1, prod_2_1_x_3_2);
+      term2 = _mm512_sub_ps(prod_2_0_x_3_2, prod_2_2_x_3_0);
+      term3 = _mm512_sub_ps(prod_2_1_x_3_0, prod_2_0_x_3_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_1_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_1_1, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_1_2, term3, false);
+      __m512 adj_3_0 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_2_1_x_3_2, prod_2_2_x_3_1);
+      term2 = _mm512_sub_ps(prod_2_2_x_3_0, prod_2_0_x_3_2);
+      term3 = _mm512_sub_ps(prod_2_0_x_3_1, prod_2_1_x_3_0);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_2, term3, false);
+      __m512 adj_3_1 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_1_2_x_3_1, prod_1_1_x_3_2);
+      term2 = _mm512_sub_ps(prod_1_0_x_3_2, prod_1_2_x_3_0);
+      term3 = _mm512_sub_ps(prod_1_1_x_3_0, prod_1_0_x_3_1);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_2, term3, false);
+      __m512 adj_3_2 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      term1 = _mm512_sub_ps(prod_1_1_x_2_2, prod_1_2_x_2_1);
+      term2 = _mm512_sub_ps(prod_1_2_x_2_0, prod_1_0_x_2_2);
+      term3 = _mm512_sub_ps(prod_1_0_x_2_1, prod_1_1_x_2_0);
+      term1 = CommsLib::M512ComplexCf32Mult(csi_0_0, term1, false);
+      term2 = CommsLib::M512ComplexCf32Mult(csi_0_1, term2, false);
+      term3 = CommsLib::M512ComplexCf32Mult(csi_0_2, term3, false);
+      __m512 adj_3_3 = _mm512_add_ps(term1, _mm512_add_ps(term2, term3));
+
+      adj_0_0 = CommsLib::M512ComplexCf32Mult(adj_0_0, det, false);
+      adj_0_1 = CommsLib::M512ComplexCf32Mult(adj_0_1, det, false);
+      adj_0_2 = CommsLib::M512ComplexCf32Mult(adj_0_2, det, false);
+      adj_0_3 = CommsLib::M512ComplexCf32Mult(adj_0_3, det, false);
+      adj_1_0 = CommsLib::M512ComplexCf32Mult(adj_1_0, det, false);
+      adj_1_1 = CommsLib::M512ComplexCf32Mult(adj_1_1, det, false);
+      adj_1_2 = CommsLib::M512ComplexCf32Mult(adj_1_2, det, false);
+      adj_1_3 = CommsLib::M512ComplexCf32Mult(adj_1_3, det, false);
+      adj_2_0 = CommsLib::M512ComplexCf32Mult(adj_2_0, det, false);
+      adj_2_1 = CommsLib::M512ComplexCf32Mult(adj_2_1, det, false);
+      adj_2_2 = CommsLib::M512ComplexCf32Mult(adj_2_2, det, false);
+      adj_2_3 = CommsLib::M512ComplexCf32Mult(adj_2_3, det, false);
+      adj_3_0 = CommsLib::M512ComplexCf32Mult(adj_3_0, det, false);
+      adj_3_1 = CommsLib::M512ComplexCf32Mult(adj_3_1, det, false);
+      adj_3_2 = CommsLib::M512ComplexCf32Mult(adj_3_2, det, false);
+      adj_3_3 = CommsLib::M512ComplexCf32Mult(adj_3_3, det, false);
+
+      // store the result
+      _mm512_storeu_ps(ul_beam_0_0 + i, adj_0_0);
+      _mm512_storeu_ps(ul_beam_0_1 + i, adj_0_1);
+      _mm512_storeu_ps(ul_beam_0_2 + i, adj_0_2);
+      _mm512_storeu_ps(ul_beam_0_3 + i, adj_0_3);
+      _mm512_storeu_ps(ul_beam_1_0 + i, adj_1_0);
+      _mm512_storeu_ps(ul_beam_1_1 + i, adj_1_1);
+      _mm512_storeu_ps(ul_beam_1_2 + i, adj_1_2);
+      _mm512_storeu_ps(ul_beam_1_3 + i, adj_1_3);
+      _mm512_storeu_ps(ul_beam_2_0 + i, adj_2_0);
+      _mm512_storeu_ps(ul_beam_2_1 + i, adj_2_1);
+      _mm512_storeu_ps(ul_beam_2_2 + i, adj_2_2);
+      _mm512_storeu_ps(ul_beam_2_3 + i, adj_2_3);
+      _mm512_storeu_ps(ul_beam_3_0 + i, adj_3_0);
+      _mm512_storeu_ps(ul_beam_3_1 + i, adj_3_1);
+      _mm512_storeu_ps(ul_beam_3_2 + i, adj_3_2);
+      _mm512_storeu_ps(ul_beam_3_3 + i, adj_3_3);
+    }
+#else
+
+    // Prepare CSI matrix. Read in vectors.
+    auto* cx_src =
+      reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][0]);
+    arma::cx_fvec vec_csi_0_0 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_1_0 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_2_0 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 2 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_3_0 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 3 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][1]);
+    arma::cx_fvec vec_csi_0_1 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_1_1 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_2_1 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 2 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_3_1 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 3 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][2]);
+    arma::cx_fvec vec_csi_0_2 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_1_2 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_2_2 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 2 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_3_2 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 3 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][3]);
+    arma::cx_fvec vec_csi_0_3 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_1_3 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_2_3 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 2 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_3_3 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 3 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
+    // Calculate the determinant
+    arma::cx_fvec vec_det =
+      vec_csi_0_0 %
+       (vec_csi_1_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+        vec_csi_1_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+        vec_csi_1_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1)) -
+      vec_csi_1_0 %
+       (vec_csi_0_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+        vec_csi_0_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+        vec_csi_0_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1)) +
+      vec_csi_2_0 %
+       (vec_csi_0_1 % (vec_csi_1_2 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_2) +
+        vec_csi_0_2 % (vec_csi_1_3 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_3) +
+        vec_csi_0_3 % (vec_csi_1_1 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_1)) -
+      vec_csi_3_0 %
+       (vec_csi_0_1 % (vec_csi_1_2 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_2) +
+        vec_csi_0_2 % (vec_csi_1_3 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_3) +
+        vec_csi_0_3 % (vec_csi_1_1 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_1));
+
+    if (unlikely(arma::any(arma::abs(vec_det) < 1e-10))) {
+      AGORA_LOG_WARN("Channel matrix seems not invertible\n");
+    }
+
+    // use reciprocal for division since multiplication is faster
+    vec_det = 1.0 / vec_det;
+
+    arma::cx_fvec vec_adj_0_0 =
+      vec_csi_1_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+      vec_csi_1_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+      vec_csi_1_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_0_1 =
+      vec_csi_0_1 % (vec_csi_2_3 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_3) +
+      vec_csi_0_2 % (vec_csi_2_1 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_1) +
+      vec_csi_0_3 % (vec_csi_2_2 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_0_2 =
+      vec_csi_0_1 % (vec_csi_1_2 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_1_3 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_1_1 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_0_3 =
+      vec_csi_0_1 % (vec_csi_1_3 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_3) +
+      vec_csi_0_2 % (vec_csi_1_1 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_1) +
+      vec_csi_0_3 % (vec_csi_1_2 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_2);
+
+    arma::cx_fvec vec_adj_1_0 =
+      vec_csi_1_0 % (vec_csi_2_3 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_3) +
+      vec_csi_1_2 % (vec_csi_2_0 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_0) +
+      vec_csi_1_3 % (vec_csi_2_2 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_1_1 =
+      vec_csi_0_0 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_2_3 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_2_0 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_1_2 =
+      vec_csi_0_0 % (vec_csi_1_3 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_3) +
+      vec_csi_0_2 % (vec_csi_1_0 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_0) +
+      vec_csi_0_3 % (vec_csi_1_2 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_1_3 =
+      vec_csi_0_0 % (vec_csi_1_2 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_2) +
+      vec_csi_0_2 % (vec_csi_1_3 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_3) +
+      vec_csi_0_3 % (vec_csi_1_0 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_0);
+
+    arma::cx_fvec vec_adj_2_0 =
+      vec_csi_1_0 % (vec_csi_2_1 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_1) +
+      vec_csi_1_1 % (vec_csi_2_3 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_3) +
+      vec_csi_1_3 % (vec_csi_2_0 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_2_1 =
+      vec_csi_0_0 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+      vec_csi_0_1 % (vec_csi_2_0 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_0) +
+      vec_csi_0_3 % (vec_csi_2_1 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_2_2 =
+      vec_csi_0_0 % (vec_csi_1_1 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_1) +
+      vec_csi_0_1 % (vec_csi_1_3 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_1_0 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_2_3 =
+      vec_csi_0_0 % (vec_csi_1_3 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_3) +
+      vec_csi_0_1 % (vec_csi_1_0 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_0) +
+      vec_csi_0_3 % (vec_csi_1_1 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_1);
+
+    arma::cx_fvec vec_adj_3_0 =
+      vec_csi_1_0 % (vec_csi_2_2 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_2) +
+      vec_csi_1_1 % (vec_csi_2_0 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_0) +
+      vec_csi_1_2 % (vec_csi_2_1 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_3_1 =
+      vec_csi_0_0 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1) +
+      vec_csi_0_1 % (vec_csi_2_2 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_2_0 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_3_2 =
+      vec_csi_0_0 % (vec_csi_1_2 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_2) +
+      vec_csi_0_1 % (vec_csi_1_0 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_0) +
+      vec_csi_0_2 % (vec_csi_1_1 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_3_3 =
+      vec_csi_0_0 % (vec_csi_1_1 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_1) +
+      vec_csi_0_1 % (vec_csi_1_2 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_2) +
+      vec_csi_0_2 % (vec_csi_1_0 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_0);
+
+    // Prepare UL beam matrix. Let Armadillo help handle the memory.
+    // The format here is identical to the input of equalizer.
+    // Note that the memory layout for Armadillo & AVX512 impl are different.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
+                               cfg_->BsAntNum(), sc_vec_len, false);
+
+    cub_ul_beam.tube(0, 0) = vec_adj_0_0 % vec_det;
+    cub_ul_beam.tube(0, 1) = vec_adj_0_1 % vec_det;
+    cub_ul_beam.tube(0, 2) = vec_adj_0_2 % vec_det;
+    cub_ul_beam.tube(0, 3) = vec_adj_0_3 % vec_det;
+    cub_ul_beam.tube(1, 0) = vec_adj_1_0 % vec_det;
+    cub_ul_beam.tube(1, 1) = vec_adj_1_1 % vec_det;
+    cub_ul_beam.tube(1, 2) = vec_adj_1_2 % vec_det;
+    cub_ul_beam.tube(1, 3) = vec_adj_1_3 % vec_det;
+    cub_ul_beam.tube(2, 0) = vec_adj_2_0 % vec_det;
+    cub_ul_beam.tube(2, 1) = vec_adj_2_1 % vec_det;
+    cub_ul_beam.tube(2, 2) = vec_adj_2_2 % vec_det;
+    cub_ul_beam.tube(2, 3) = vec_adj_2_3 % vec_det;
+    cub_ul_beam.tube(3, 0) = vec_adj_3_0 % vec_det;
+    cub_ul_beam.tube(3, 1) = vec_adj_3_1 % vec_det;
+    cub_ul_beam.tube(3, 2) = vec_adj_3_2 % vec_det;
+    cub_ul_beam.tube(3, 3) = vec_adj_3_3 % vec_det;
+
+    // // Transform default beam matrix layout to the one used by AVX512 equalizer.
+    // arma::cx_fvec vec_ul_beam(
+    //     (arma::cx_float*)ul_beam_ptr,
+    //     sc_vec_len * cfg_->SpatialStreamsNum() * cfg_->BsAntNum(),
+    //     false);
+    // size_t shift = sc_vec_len;
+
+    // vec_ul_beam.subvec(0, shift - 1) = vec_adj_0_0 % vec_det;
+    // vec_ul_beam.subvec(shift, 2 * shift - 1) = vec_adj_0_1 % vec_det;
+    // vec_ul_beam.subvec(2 * shift, 3 * shift - 1) = vec_adj_0_2 % vec_det;
+    // vec_ul_beam.subvec(3 * shift, 4 * shift - 1) = vec_adj_0_3 % vec_det;
+    // vec_ul_beam.subvec(4 * shift, 5 * shift - 1) = vec_adj_1_0 % vec_det;
+    // vec_ul_beam.subvec(5 * shift, 6 * shift - 1) = vec_adj_1_1 % vec_det;
+    // vec_ul_beam.subvec(6 * shift, 7 * shift - 1) = vec_adj_1_2 % vec_det;
+    // vec_ul_beam.subvec(7 * shift, 8 * shift - 1) = vec_adj_1_3 % vec_det;
+    // vec_ul_beam.subvec(8 * shift, 9 * shift - 1) = vec_adj_2_0 % vec_det;
+    // vec_ul_beam.subvec(9 * shift, 10 * shift - 1) = vec_adj_2_1 % vec_det;
+    // vec_ul_beam.subvec(10 * shift, 11 * shift - 1) = vec_adj_2_2 % vec_det;
+    // vec_ul_beam.subvec(11 * shift, 12 * shift - 1) = vec_adj_2_3 % vec_det;
+    // vec_ul_beam.subvec(12 * shift, 13 * shift - 1) = vec_adj_3_0 % vec_det;
+    // vec_ul_beam.subvec(13 * shift, 14 * shift - 1) = vec_adj_3_1 % vec_det;
+    // vec_ul_beam.subvec(14 * shift, 15 * shift - 1) = vec_adj_3_2 % vec_det;
+    // vec_ul_beam.subvec(15 * shift, 16 * shift - 1) = vec_adj_3_3 % vec_det;
+#endif
+
+    duration_stat_->task_duration_[2] += GetTime::WorkerRdtsc() - start_tsc2;
+    duration_stat_->task_count_++;
+    duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
+
+    return;
+  } // end special 1x1, 2x2 or 4x4 cases
 
   // Default: Handle each subcarrier one by one
   size_t sc_inc = 1;
