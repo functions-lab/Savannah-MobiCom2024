@@ -46,6 +46,8 @@
 #include "rte_mempool.h"
 #include "scrambler.h"
 #include "stats.h"
+#include "logger.h"
+
 
 #define NB_MBUF 8192
 #define MBUF_CACHE_SIZE 256
@@ -85,6 +87,8 @@ class DoDecode_ACC : public Doer {
   DurationStat* duration_stat_;
   std::unique_ptr<AgoraScrambler::Scrambler> scrambler_;
 
+  // struct rte_bbdev_dec_op;
+
   uint8_t dev_id;
   int ldpc_llr_decimals;
   int ldpc_llr_size;
@@ -92,6 +96,7 @@ class DoDecode_ACC : public Doer {
   uint16_t min_alignment;
   uint16_t num_ops = 2047;
   uint16_t burst_sz = 1;
+  // const size_t num_ul_syms = cfg_->Frame().NumULSyms();
 
   struct rte_mempool* ops_mp;
   struct rte_mempool* in_mbuf_pool;
@@ -101,8 +106,12 @@ class DoDecode_ACC : public Doer {
   struct rte_mbuf* in_mbuf;
   struct rte_mbuf* out_mbuf;
 
-  struct rte_bbdev_dec_op* ref_dec_op[1];
-  struct rte_bbdev_dec_op* ops_deq[1];
+  // size_t num_ul_syms;
+  // std::vector<rte_bbdev_dec_op* > ref_dec_op;
+  // std::vector<rte_bbdev_dec_op* > ops_deq;
+  
+  struct rte_bbdev_dec_op* ref_dec_op[16];
+  struct rte_bbdev_dec_op* ops_deq[16];
 
   struct rte_bbdev_op_data** inputs;
   struct rte_bbdev_op_data** hard_outputs;
