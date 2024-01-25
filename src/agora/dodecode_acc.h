@@ -110,8 +110,8 @@ class DoDecode_ACC : public Doer {
   // std::vector<rte_bbdev_dec_op* > ref_dec_op;
   // std::vector<rte_bbdev_dec_op* > ops_deq;
   
-  struct rte_bbdev_dec_op* ref_dec_op[16];
-  struct rte_bbdev_dec_op* ops_deq[16];
+  struct rte_bbdev_dec_op* ref_dec_op[64];
+  struct rte_bbdev_dec_op* ops_deq[64];
 
   struct rte_bbdev_op_data** inputs;
   struct rte_bbdev_op_data** hard_outputs;
