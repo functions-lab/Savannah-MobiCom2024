@@ -14,6 +14,7 @@
 #define MAX_RX_BYTE_SIZE 1500
 static constexpr bool kPrintLLRData = false;
 static constexpr bool kPrintDecodedData = false;
+static constexpr bool kPrintACC100Byte = false;
 
 static constexpr size_t kVarNodesSize = 1024 * 1024 * sizeof(int16_t);
 
@@ -548,13 +549,14 @@ EventData DoDecode_ACC::Launch(size_t tag) {
           size_t temp_length = rte_pktmbuf_data_len(temp_m);
 
           // If temp_m contains multiple bytes, use memcmp to compare
-
-          if (frame_id > 1000 && frame_id % 1000 == 0) {
-            std::cout <<"num bytes per cb is: " << num_bytes_per_cb << std::endl;
-            std::cout<<"temp_length is: " << temp_length << std::endl;
-            printf("\n\nContent of temp_data:\n");
-            for (size_t j = 0; j < temp_length; ++j) {
-              printf("%02X ", temp_data[j]); 
+          if (kPrintACC100Byte == true){
+            if (frame_id > 1000 && frame_id % 1000 == 0) {
+              std::cout <<"num bytes per cb is: " << num_bytes_per_cb << std::endl;
+              std::cout<<"temp_length is: " << temp_length << std::endl;
+              printf("\n\nContent of temp_data:\n");
+              for (size_t j = 0; j < temp_length; ++j) {
+                printf("%02X ", temp_data[j]); 
+              }
             }
           }
 
