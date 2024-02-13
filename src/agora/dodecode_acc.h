@@ -62,6 +62,8 @@
 #define MAX_PKT_BURST 32
 #define MAX_BURST 512U
 #define SYNC_START 1
+#define MAX_DEQUEUE_TRIAL 1000000
+
 
 // struct rte_bbdev_dec_op {
 // 	/** Status of operation that was performed */

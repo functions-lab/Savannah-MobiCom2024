@@ -490,10 +490,9 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     // deq += rte_bbdev_dequeue_ldpc_dec_ops(0, 0, &ops_deq[0], enq - deq);
     // std::cout<<"afater dequeue"<<std::endl;
 
-    int max_retries = 1000;
     int retry_count = 0;
 
-    while (deq < enq && retry_count < max_retries) {
+    while (deq < enq && retry_count < MAX_DEQUEUE_TRIAL) {
       // rte_delay_ms(10);  // Wait for 10 milliseconds
       deq += rte_bbdev_dequeue_ldpc_dec_ops(0, 0, &ops_deq[deq], enq - deq);
       retry_count++;
@@ -501,7 +500,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
 
     // std::cout<< "enq is " << enq << " while deq is: " << deq << std::endl;
     AGORA_LOG_INFO("ACC100: enq = %d, deq = %d\n", enq, deq);
-
     // commented for now
     // struct rte_mbuf *decoded_mbuf = (struct rte_mbuf *)(hard_outputs[0]->data);
     // Assuming data is contiguous in the mbuf, and not scattered across multiple segments
@@ -532,7 +530,7 @@ EventData DoDecode_ACC::Launch(size_t tag) {
       struct rte_bbdev_op_data *hard_output;
       struct rte_mbuf *temp_m;
       size_t offset = 0;
-      
+
       for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){
         size_t BLER(0);
         for (size_t temp_idx = 0; temp_idx < num_ul_syms; temp_idx++){
@@ -543,25 +541,22 @@ EventData DoDecode_ACC::Launch(size_t tag) {
                                     tx_byte);
           tx_word = static_cast<uint8_t>(tx_byte);
 
-          // printf("tx byte at index %zu is: %02X\n", i, tx_byte);
-          // printf("%02X ", temp_data[j]);
-          // if (rx_byte[0] != tx_byte) {
-          //   block_error++;
-          // }
-
           ops_td = &ops_deq[i]->ldpc_dec;
           hard_output = &ops_td->hard_output;
           temp_m = hard_output->data;
-          uint8_t* temp_data = rte_pktmbuf_mtod(temp_m, uint8_t*);
+          uint32_t* temp_data = rte_pktmbuf_mtod(temp_m, uint32_t*);
           size_t temp_length = rte_pktmbuf_data_len(temp_m);
 
           // If temp_m contains multiple bytes, use memcmp to compare
-          // std::cout <<"num bytes per cb is: " << num_bytes_per_cb << std::endl;
-          // std::cout<<"temp_length is: " << temp_length << std::endl;
-          // printf("\n\nContent of temp_data:\n");
-          // for (size_t j = 0; j < temp_length; ++j) {
-          //     printf("%02X ", temp_data[j]); 
-          // }
+
+          if (frame_id > 1000 && frame_id % 1000 == 0) {
+            std::cout <<"num bytes per cb is: " << num_bytes_per_cb << std::endl;
+            std::cout<<"temp_length is: " << temp_length << std::endl;
+            printf("\n\nContent of temp_data:\n");
+            for (size_t j = 0; j < temp_length; ++j) {
+              printf("%02X ", temp_data[j]); 
+            }
+          }
 
           // std::cout << "Content of tx_word: " << tx_word << std::endl; // Prints in hexadecimal format
           if (memcmp(temp_data, &tx_word, temp_length) != 0) {
@@ -584,6 +579,7 @@ EventData DoDecode_ACC::Launch(size_t tag) {
         //   offset += segment_length;
         //   segment = segment->next;
         // }
+          i++;
         }
         phy_stats_->UpdateDecodedBits(temp_ue_id, symbol_offset, frame_slot,
                                       num_bytes_per_cb * 8);
