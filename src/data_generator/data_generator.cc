@@ -274,7 +274,18 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
     }
 
     // Place modulated uplink data codewords into central IFFT bins
-    RtAssert(ul_ldpc_config.NumBlocksInSymbol() == 1);  // TODO: Assumption
+    AGORA_LOG_INFO("ul_mod_order_bits: %zu\n",
+                   cfg_->ModOrderBits(Direction::kUplink));
+    AGORA_LOG_INFO("OfdmDataNum(): %zu\n", cfg_->OfdmDataNum());
+    AGORA_LOG_INFO("NumBlocksInSymbol(): %zu\n",
+                   ul_ldpc_config.NumBlocksInSymbol());
+    AGORA_LOG_INFO("NumCbCodewLen(): %u\n", ul_ldpc_config.NumCbCodewLen());
+    AGORA_LOG_INFO("NumBlocksInSymbol() input: %f\n",
+                    (double(cfg_->OfdmDataNum()) *
+                     double(cfg_->ModOrderBits(Direction::kUplink))) /
+                     double(ul_ldpc_config.NumCbCodewLen()));
+    RtAssert(ul_ldpc_config.NumBlocksInSymbol() == 1, // TODO: Assumption
+             "This version of Agora does not support code block partition");
     pre_ifft_data_syms.resize(this->cfg_->UeAntNum() *
                               this->cfg_->Frame().NumUlDataSyms());
     for (size_t i = 0; i < pre_ifft_data_syms.size(); i++) {
