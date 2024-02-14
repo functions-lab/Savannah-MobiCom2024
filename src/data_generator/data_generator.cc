@@ -27,6 +27,7 @@ static constexpr bool kPrintDownlinkInformationBytes = false;
 ///Output files
 static const std::string kUlDataPrefix = "orig_ul_data_";
 static const std::string kUlLdpcDataPrefix = "LDPC_orig_ul_data_";
+static const std::string kUlLdpcACC100DataPrefix = "LDPC_ACC100_orig_ul_data_";
 static const std::string kDlDataPrefix = "orig_dl_data_";
 static const std::string kDlLdpcDataPrefix = "LDPC_orig_dl_data_";
 static const std::string kRxLdpcPrefix = "LDPC_rx_data_";
@@ -154,7 +155,9 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
           this->cfg_->ScrambleEnabled());
     }
 
+    // the following generated file is used as a reference to compare BLER.
     {
+      std::cout<<"directory is: " << directory << std::endl;
       const std::string filename_input =
           directory + kUlLdpcDataPrefix +
           std::to_string(this->cfg_->OfdmCaNum()) + "_ant" +
@@ -189,13 +192,48 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
           std::printf("Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
                       n % this->cfg_->UeAntNum());
           for (size_t i = 0; i < ul_cb_bytes; i++) {
-            std::printf("%u ",
+            std::printf("%02X ",
                         static_cast<uint8_t>(ul_information.at(n).at(i)));
           }
           std::printf("\n");
         }
       }
     }
+
+// The following are used to generate ACC100 LDPC realted encoding files:
+#if defined(USE_ACC100)
+    {
+      std::cout<<"Since using ACC100, generate reference from ACC100" << std::endl;
+      const std::string filename_input =
+          directory + kUlLdpcACC100DataPrefix +
+          std::to_string(this->cfg_->OfdmCaNum()) + "_ant" +
+          std::to_string(this->cfg_->UeAntNum()) + ".bin";
+      AGORA_LOG_INFO("Saving raw uplink data (using ACC100 LDPC) to %s\n",
+                     filename_input.c_str());
+      
+      auto* fp_input = std::fopen(filename_input.c_str(), "wb");
+      if (fp_input == nullptr) {
+        AGORA_LOG_ERROR("Failed to create file %s\n", filename_input.c_str());
+        throw std::runtime_error("Failed to create file" + filename_input);
+      } else {
+        for (size_t i = 0; i < num_ul_codeblocks; i++) {
+          const auto write_status = std::fwrite(
+              reinterpret_cast<uint8_t*>(&ul_information.at(i).at(0)),
+              sizeof(uint8_t), ul_cb_bytes, fp_input);
+          if (write_status != ul_cb_bytes) {
+            AGORA_LOG_ERROR("Wrote %zu out of %zu to file %s\n", write_status,
+                            ul_cb_bytes, filename_input.c_str());
+            throw std::runtime_error("Failed to write to file" +
+                                     filename_input);
+          }
+        }
+        const auto close_status = std::fclose(fp_input);
+        if (close_status != 0) {
+          throw std::runtime_error("Failed to close file" + filename_input);
+        }
+      }
+    }
+#endif  
 
     if (kOutputUlScData) {
       std::vector<std::vector<std::vector<std::vector<std::vector<uint8_t>>>>>

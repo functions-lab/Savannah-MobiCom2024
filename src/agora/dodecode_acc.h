@@ -62,7 +62,21 @@
 #define MAX_PKT_BURST 32
 #define MAX_BURST 512U
 #define SYNC_START 1
+#define MAX_DEQUEUE_TRIAL 1000000
 
+
+// struct rte_bbdev_dec_op {
+// 	/** Status of operation that was performed */
+// 	int status;
+// 	/** Mempool which op instance is in */
+// 	struct rte_mempool *mempool;
+// 	/** Opaque pointer for user data */
+// 	void *opaque_data;
+// 	union {
+// 		/** Contains LDPC decoder specific parameters */
+// 		struct rte_bbdev_op_ldpc_dec ldpc_dec;
+// 	};
+// };
 class DoDecode_ACC : public Doer {
  public:
   DoDecode_ACC(
@@ -85,6 +99,7 @@ class DoDecode_ACC : public Doer {
   PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& decoded_buffers_;
   PhyStats* phy_stats_;
   DurationStat* duration_stat_;
+  // DurationStat* duration_stat_enq_;
   std::unique_ptr<AgoraScrambler::Scrambler> scrambler_;
 
   // struct rte_bbdev_dec_op;
@@ -96,6 +111,8 @@ class DoDecode_ACC : public Doer {
   uint16_t min_alignment;
   uint16_t num_ops = 2047;
   uint16_t burst_sz = 1;
+  size_t q_m;
+  size_t e;
   // const size_t num_ul_syms = cfg_->Frame().NumULSyms();
 
   struct rte_mempool* ops_mp;
@@ -119,6 +136,13 @@ class DoDecode_ACC : public Doer {
   rte_mbuf* input_pkts_burst[54];
   rte_mbuf* output_pkts_burst[54];
   rte_mempool* mbuf_pool;
+
+//     static inline void
+// rte_bbdev_dec_op_free_bulk(struct rte_bbdev_dec_op **ops, unsigned int num_ops)
+// {
+// 	if (num_ops > 0)
+// 		rte_mempool_put_bulk(ops[0]->mempool, (void **)ops, num_ops);
+// }
   // rte_mbuf *in_m_head;
   // rte_mbuf *out_m_head;
 };
