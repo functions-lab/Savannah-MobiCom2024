@@ -195,8 +195,9 @@ class Config {
   inline size_t DemulThreadNum() const { return this->demul_thread_num_; }
   inline size_t DecodeThreadNum() const { return this->decode_thread_num_; }
   inline size_t BeamThreadNum() const { return this->beam_thread_num_; }
-  inline size_t DemulBlockSize() const { return this->demul_block_size_; }
 
+  inline bool SmallMimoAcc() const { return this->small_mimo_acc_; }
+  inline size_t DemulBlockSize() const { return this->demul_block_size_; }
   inline size_t DemulEventsPerSymbol() const {
     return this->demul_events_per_symbol_;
   }
@@ -817,6 +818,12 @@ class Config {
   size_t ue_core_offset_;
   size_t ue_worker_thread_num_;
   size_t ue_socket_thread_num_;
+
+  // If true, accelerate small MIMO such as 1x1, 2x2, and 4x4. Vector operations
+  // are done across subcarriers instead of looping through each subcarrier.
+  // This is useful for performance optimization and is only implemented for
+  // some antenna config (1x1, 2x2, 4x4) in DoBeamweight.cc and DeDemul.cc.
+  bool small_mimo_acc_;
 
   // Number of OFDM data subcarriers handled in one demodulation event
   size_t demul_block_size_;

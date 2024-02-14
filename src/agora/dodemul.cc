@@ -33,9 +33,10 @@ DoDemul::DoDemul(
   // Thus, size will be kSCsPerCacheline * kMaxAntennas.
   // For specialized (2x2/4x4) cases, we gather all subcarriers once and perform
   // vectorized operations. This will be faster for small, square MIMO matrices.
-  if ((cfg_->UeAntNum() == 2 && cfg_->BsAntNum() == 2) ||
-      (cfg_->UeAntNum() == 4 && cfg_->BsAntNum() == 4)) {
-  data_gather_buffer_ =
+  if (cfg_->SmallMimoAcc() && // enables special case acceleration
+      ((cfg_->UeAntNum() == 2 && cfg_->BsAntNum() == 2) ||
+       (cfg_->UeAntNum() == 4 && cfg_->BsAntNum() == 4))) {
+    data_gather_buffer_ =
       static_cast<complex_float*>(Agora_memory::PaddedAlignedAlloc(
           Agora_memory::Alignment_t::kAlign64,
           cfg_->DemulBlockSize() * kMaxAntennas * sizeof(complex_float)));
@@ -130,6 +131,7 @@ EventData DoDemul::Launch(size_t tag) {
       std::min(cfg_->DemulBlockSize(), cfg_->OfdmDataNum() - base_sc_id);
   assert(max_sc_ite % kSCsPerCacheline == 0);
 
+  if (cfg_->SmallMimoAcc()) { // enables special case acceleration
   // Accelerate (vectorized computation) 1x1 antenna config
   if (cfg_->UeAntNum() == 1 && cfg_->BsAntNum() == 1) {
     size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
@@ -826,6 +828,7 @@ EventData DoDemul::Launch(size_t tag) {
     cub_equaled.tube(2, 0) = vec_equal_2;
     cub_equaled.tube(3, 0) = vec_equal_3;
 #endif
+  }
   } else {
     // Iterate through cache lines
     for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {

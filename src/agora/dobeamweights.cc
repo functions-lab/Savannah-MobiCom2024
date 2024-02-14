@@ -422,7 +422,8 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
   // Note: no subcarrirer grouping or partial transpose for special case.
   // Reduce to scalar, vectorized operation in special case (1x1 ant config),
   // uplink, zeroforcing
-  if (cfg_->BsAntNum() == 1 && cfg_->UeAntNum() == 1 &&
+  if (cfg_->SmallMimoAcc() && // enables special case acceleration
+      cfg_->BsAntNum() == 1 && cfg_->UeAntNum() == 1 && // conditions
       cfg_->SpatialStreamsNum() == 1 &&
       cfg_->BeamformingAlgo() == CommsLib::BeamformingAlgorithm::kZF &&
       cfg_->Frame().NumDLSyms() == 0 &&
@@ -430,10 +431,6 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       kUseInverseForZF) {
     
     const size_t start_tsc1 = GetTime::WorkerRdtsc();
-
-    RtAssert(cfg_->BeamBlockSize() == cfg_->OfdmDataNum(),
-             "BeamBlockSize must be equal to OfdmDataNum to enable special"
-             " case acceleration.");
 
     const size_t sc_vec_len = cfg_->OfdmDataNum();
     const size_t ue_idx = 0; // If UeAntNum() == 1, only one UE exists.
@@ -458,7 +455,8 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     duration_stat_->task_count_++;
     duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
     return;
-  } else if (cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2 &&
+  } else if (cfg_->SmallMimoAcc() && // enables special case acceleration
+             cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2 && // conditions
              cfg_->SpatialStreamsNum() == 2 &&
              cfg_->BeamformingAlgo() == CommsLib::BeamformingAlgorithm::kZF &&
              cfg_->Frame().NumDLSyms() == 0 &&
@@ -601,7 +599,8 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     duration_stat_->task_count_++;
     duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc1;
     return;
-  } else if (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4 &&
+  } else if (cfg_->SmallMimoAcc() && // enables special case acceleration
+             cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4 && // conditions
              cfg_->SpatialStreamsNum() == 4 &&
              cfg_->BeamformingAlgo() == CommsLib::BeamformingAlgorithm::kZF &&
              cfg_->Frame().NumDLSyms() == 0 &&
