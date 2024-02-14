@@ -98,6 +98,16 @@ static int init_op_output_objs_from_buffer(
   return 0;
 }
 
+void print_uint32(const uint32_t* array, size_t totalByteLength) {
+  // Round up to the nearest multiple of 4
+  size_t totalWordLength = (totalByteLength + 3) / 4;
+
+  for (int i = 0; i < totalWordLength; i++) {
+    // Extract and print the byte
+    printf("%08X ", array[i]);
+  }
+}
+
 DoDecode_ACC::DoDecode_ACC(
     Config *in_config, int in_tid,
     PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t> &demod_buffers,
@@ -538,30 +548,29 @@ EventData DoDecode_ACC::Launch(size_t tag) {
           tx_byte = static_cast<uint8_t>(
             cfg_->GetInfoBits(cfg_->UlBits(), Direction::kUplink, temp_idx,
                               temp_ue_id, cur_cb_id)[i]);
-          phy_stats_->UpdateBitErrors(temp_ue_id, symbol_offset, frame_slot, tx_byte,
-                                    tx_byte);
+          phy_stats_->UpdateBitErrors(temp_ue_id, symbol_offset, frame_slot,
+                                      tx_byte, tx_byte);
           tx_word = static_cast<uint8_t>(tx_byte);
 
           ops_td = &ops_deq[i]->ldpc_dec;
           hard_output = &ops_td->hard_output;
           temp_m = hard_output->data;
           uint32_t* temp_data = rte_pktmbuf_mtod(temp_m, uint32_t*);
-          size_t temp_length = rte_pktmbuf_data_len(temp_m);
+          RtAssert(num_bytes_per_cb == rte_pktmbuf_data_len(temp_m),
+                   "num_bytes_per_cb does not match the length of the mbuf.");
 
           // If temp_m contains multiple bytes, use memcmp to compare
-          if (kPrintACC100Byte == true){
+          if (kPrintACC100Byte){
             if (frame_id > 1000 && frame_id % 1000 == 0) {
-              std::cout <<"num bytes per cb is: " << num_bytes_per_cb << std::endl;
-              std::cout<<"temp_length is: " << temp_length << std::endl;
-              printf("\n\nContent of temp_data:\n");
-              for (size_t j = 0; j < temp_length; ++j) {
-                printf("%02X ", temp_data[j]); 
-              }
+              std::cout << "CB size = " << num_bytes_per_cb << " bytes\n";
+              std::cout << "Content of the CB (in uint32):\n";
+              print_uint32(temp_data, num_bytes_per_cb);
+              std::cout << std::endl << std::endl;
             }
           }
 
           // std::cout << "Content of tx_word: " << tx_word << std::endl; // Prints in hexadecimal format
-          if (memcmp(temp_data, &tx_word, temp_length) != 0) {
+          if (memcmp(temp_data, &tx_word, num_bytes_per_cb) != 0) {
             // Data matches, do something
             block_error++;
           }
