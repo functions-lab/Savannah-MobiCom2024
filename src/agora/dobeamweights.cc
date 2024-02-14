@@ -435,6 +435,24 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     const size_t sc_vec_len = cfg_->OfdmDataNum();
     const size_t ue_idx = 0; // If UeAntNum() == 1, only one UE exists.
 
+   // Equivalent to: arma::inv_sympd(mat_csi.t() * mat_csi) * mat_csi.t();
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
+    // Gather CSI
+    complex_float* ptr_src = csi_buffers_[frame_slot][ue_idx];
+
+    // Prepare UL beam matrix. Linearly distribute the memory.
+    complex_float* ptr_ul_beam = ul_beam_matrices_[frame_slot][base_sc_id];
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
+    // A = [a], B = [1/a] = A^(-1)
+    for (size_t i = 0; i < sc_vec_len; i += kSCsPerCacheline) {
+      __m512 a = _mm512_loadu_ps(ptr_src + i);
+      __m512 inv_a = CommsLib::M512ComplexCf32Reciprocal(a);
+      _mm512_storeu_ps(ptr_ul_beam + i, inv_a);
+    }
+#else
     // Gather CSI
     complex_float* cx_src = &csi_buffers_[frame_slot][ue_idx][base_sc_id];
     arma::cx_fvec csi_vec((arma::cx_float*)cx_src, sc_vec_len, false);
@@ -450,6 +468,7 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     ul_beam_vec = (1/(arma::square(arma::real(csi_vec)) + 
                       arma::square(arma::imag(csi_vec))))
                   % arma::conj(csi_vec);
+#endif
 
     duration_stat_->task_duration_[2] += GetTime::WorkerRdtsc() - start_tsc2;
     duration_stat_->task_count_++;
@@ -468,7 +487,7 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     const size_t start_tsc1 = GetTime::WorkerRdtsc();
 
     // Equivalent to: arma::inv_sympd(mat_csi.t() * mat_csi) * mat_csi.t();
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
 
     // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
     complex_float* ptr_a = csi_buffers_[frame_slot][0];
@@ -611,7 +630,7 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
 
     const size_t start_tsc1 = GetTime::WorkerRdtsc();
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
     // Gather CSI
     complex_float* ptr_0_0 = csi_buffers_[frame_slot][0];
     complex_float* ptr_0_1 = csi_buffers_[frame_slot][1];

@@ -158,7 +158,7 @@ EventData DoDemul::Launch(size_t tag) {
       vec_ul_beam(i) = ul_beam_ptr[cfg_->GetBeamScId(base_sc_id + i)];
     }
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
     const complex_float* ptr_data =
       reinterpret_cast<const complex_float*>(data_ptr);
     const complex_float* ptr_ul_beam =
@@ -249,7 +249,7 @@ EventData DoDemul::Launch(size_t tag) {
     arma::cx_fcube cub_equaled(equal_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
     // cub_equaled.print("cub_equaled");
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
     // Step 0: Prepare pointers
     arma::cx_frowvec vec_equal_0 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
     arma::cx_frowvec vec_equal_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
@@ -357,7 +357,7 @@ EventData DoDemul::Launch(size_t tag) {
 
       // Calc new phase shift
       if (symbol_idx_ul < cfg_->Frame().ClientUlPilotSymbols()) {
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
         complex_float* ue_pilot_ptr =
           reinterpret_cast<complex_float*>(cfg_->UeSpecificPilot()[0]);
         complex_float *ptr_ue_pilot_0 = ue_pilot_ptr;
@@ -450,7 +450,7 @@ EventData DoDemul::Launch(size_t tag) {
         arma::cx_fmat mat_phase_correct =
             arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
       __m512 ph_corr_0 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(0, 0));
       __m512 ph_corr_1 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(1, 0));
 
@@ -476,7 +476,7 @@ EventData DoDemul::Launch(size_t tag) {
           GetTime::WorkerRdtsc() - start_equal_tsc2;
     }
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
     // store back to Armadillo matrix
     cub_equaled.tube(0, 0) = vec_equal_0;
     cub_equaled.tube(1, 0) = vec_equal_1;
@@ -496,7 +496,7 @@ EventData DoDemul::Launch(size_t tag) {
     arma::cx_fcube cub_equaled(equal_ptr, cfg_->BsAntNum(), 1, max_sc_ite, false);
     // cub_equaled.print("cub_equaled");
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
     // Step 0: Prepare pointers
     arma::cx_frowvec vec_equal_0 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
     arma::cx_frowvec vec_equal_1 = arma::zeros<arma::cx_frowvec>(max_sc_ite);
@@ -683,7 +683,7 @@ EventData DoDemul::Launch(size_t tag) {
 
       // Calc new phase shift
       if (symbol_idx_ul < cfg_->Frame().ClientUlPilotSymbols()) {
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
         complex_float* ue_pilot_ptr =
           reinterpret_cast<complex_float*>(cfg_->UeSpecificPilot()[0]);
         complex_float *ptr_ue_pilot_0 = ue_pilot_ptr;
@@ -791,7 +791,7 @@ EventData DoDemul::Launch(size_t tag) {
         arma::cx_fmat mat_phase_correct =
             arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
         __m512 ph_corr_0 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(0, 0));
         __m512 ph_corr_1 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(1, 0));
         __m512 ph_corr_2 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(2, 0));
@@ -821,7 +821,7 @@ EventData DoDemul::Launch(size_t tag) {
           GetTime::WorkerRdtsc() - start_equal_tsc2;
     }
 
-#ifdef __AVX512F__
+#if defined(__AVX512F__) && defined(AVX512_MATOP)
     // store back to Armadillo matrix
     cub_equaled.tube(0, 0) = vec_equal_0;
     cub_equaled.tube(1, 0) = vec_equal_1;
