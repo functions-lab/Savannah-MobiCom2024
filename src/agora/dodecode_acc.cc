@@ -272,8 +272,7 @@ DoDecode_ACC::DoDecode_ACC(
 
   int iter_num = num_ul_syms * num_ue;
   // std::cout<<"iter_num is: " << iter_num << std::endl;
-  q_m = cfg_->ModOrder(Direction::kUplink);
-  // std::cout << "q_m is: " << q_m << std::endl;
+  q_m = cfg_->ModOrderBits(Direction::kUplink);
   e = ldpc_config.NumCbCodewLen();
   // std::cout<<"NumCbCodeLen is: " << ldpc_config.NumCbCodewLen() <<std::endl;
 
