@@ -20,6 +20,7 @@ AgoraBuffer::AgoraBuffer(Config* const cfg)
                       cfg->LdpcConfig(Direction::kUplink).NumBlocksInSymbol() *
                           Roundup<64>(cfg->NumBytesPerCb(Direction::kUplink))) {
   AllocateTables();
+  AllocatePhaseShifts();
 }
 
 AgoraBuffer::~AgoraBuffer() { FreeTables(); }
@@ -106,6 +107,14 @@ void AgoraBuffer::AllocateTables() {
         task_buffer_symbol_num,
         Roundup<64>(config_->GetOFDMDataNum()) * config_->SpatialStreamsNum(),
         Agora_memory::Alignment_t::kAlign64);
+  }
+}
+
+void AgoraBuffer::AllocatePhaseShifts() {
+  for (size_t frame = 0; frame < kFrameWnd; frame++) {
+    ul_phase_base_[frame] = arma::fmat(
+        config_->UeAntNum(), config_->Frame().ClientUlPilotSymbols());
+    ul_phase_shift_per_symbol_[frame] = ul_phase_base_[frame].col(0);
   }
 }
 

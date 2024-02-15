@@ -5,6 +5,8 @@
 #ifndef DODEMUL_H_
 #define DODEMUL_H_
 
+#include <array>
+
 #include "armadillo"
 #include "common_typedef_sdk.h"
 #include "concurrentqueue.h"
@@ -24,6 +26,8 @@ class DoDemul : public Doer {
           Table<complex_float>& ue_spec_pilot_buffer,
           Table<complex_float>& equal_buffer,
           PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers_,
+          std::array<arma::fmat, kFrameWnd>& ul_phase_base,
+          std::array<arma::fmat, kFrameWnd>& ul_phase_shift_per_symbol,
           MacScheduler* mac_sched, PhyStats* in_phy_stats,
           Stats* in_stats_manager);
   ~DoDemul() override;
@@ -79,19 +83,12 @@ class DoDemul : public Doer {
   int ue_num_simd256_;
 
   // For efficient phase shift calibration
+  std::array<arma::fmat, kFrameWnd>& ul_phase_base_;
+  std::array<arma::fmat, kFrameWnd>& ul_phase_shift_per_symbol_;
   arma::fmat theta_mat;
   arma::fmat theta_inc;
   arma::fvec theta_vec;
   float theta_inc_f;
-
-  // // For efficient sin/cos with LUT
-  // static const int lut_size = 1000;
-  // const double lut_max_angle = 2 * arma::datum::pi;
-  // const double lut_step = lut_max_angle / lut_size;
-  // arma::fvec sin_lut;
-  // arma::fvec cos_lut;
-  // arma::fmat sin_lut_func(const arma::fmat&);
-  // arma::fmat cos_lut_func(const arma::fmat&);
 
 #if defined(USE_MKL_JIT)
   void* jitter_;

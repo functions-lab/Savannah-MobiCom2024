@@ -91,6 +91,7 @@ void AgoraWorker::InitializeWorker() {
   auto compute_demul = std::make_shared<DoDemul>(
       config_, tid, buffer_->GetFft(), buffer_->GetUlBeamMatrix(),
       buffer_->GetUeSpecPilot(), buffer_->GetEqual(), buffer_->GetDemod(),
+      buffer_->GetUlPhaseBase(), buffer_->GetUlPhaseShiftPerSymbol(),
       mac_sched_, phy_stats_, stats_);
 
   ///*************************
@@ -149,11 +150,11 @@ void AgoraWorker::RunWorker() {
 #else
 
 void AgoraWorker::CreateThreads() {
-  /* Limit the number of thread to be 1 */
-  if (config_->WorkerThreadNum() != 1) {
-    AGORA_LOG_ERROR("Worker: Current implementation allows only 1 worker thread!\n");
-    exit(EXIT_FAILURE);
-  }
+  // /* Limit the number of thread to be 1 */
+  // if (config_->WorkerThreadNum() != 1) {
+  //   AGORA_LOG_ERROR("Worker: Current implementation allows only 1 worker thread!\n");
+  //   exit(EXIT_FAILURE);
+  // }
 
   AGORA_LOG_SYMBOL("Worker: creating %zu workers\n",
                    config_->WorkerThreadNum());
@@ -208,6 +209,7 @@ void AgoraWorker::WorkerThread(int tid) {
   auto compute_demul = std::make_unique<DoDemul>(
       config_, tid, buffer_->GetFft(), buffer_->GetUlBeamMatrix(),
       buffer_->GetUeSpecPilot(), buffer_->GetEqual(), buffer_->GetDemod(),
+      buffer_->GetUlPhaseBase(), buffer_->GetUlPhaseShiftPerSymbol(),
       mac_sched_, phy_stats_, stats_);
 
   std::vector<Doer*> computers_vec;

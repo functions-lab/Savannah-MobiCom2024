@@ -69,6 +69,8 @@ void MasterToWorkerDynamicWorker(
     Table<complex_float>& ue_spec_pilot_buffer,
     Table<complex_float>& equal_buffer,
     PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers_,
+    std::array<arma::fmat, kFrameWnd>& ul_phase_base,
+    std::array<arma::fmat, kFrameWnd>& ul_phase_shift_per_symbol,
     MacScheduler* mac_sched, PhyStats* phy_stats, Stats* stats) {
   PinToCoreWithOffset(ThreadType::kWorker, cfg->CoreOffset() + 1, worker_id);
 
@@ -80,7 +82,8 @@ void MasterToWorkerDynamicWorker(
 
   auto compute_demul = std::make_unique<DoDemul>(
       cfg, worker_id, data_buffer, ul_beam_matrices, ue_spec_pilot_buffer,
-      equal_buffer, demod_buffers_, mac_sched, phy_stats, stats);
+      equal_buffer, demod_buffers_, ul_phase_base, ul_phase_shift_per_symbol,
+      mac_sched, phy_stats, stats);
 
   size_t start_tsc = GetTime::Rdtsc();
   size_t num_tasks = 0;
@@ -161,6 +164,14 @@ TEST(TestDemul, VaryingConfig) {
   auto stats = std::make_unique<Stats>(cfg.get());
   auto phy_stats = std::make_unique<PhyStats>(cfg.get(), Direction::kUplink);
 
+  std::array<arma::fmat, kFrameWnd> ul_phase_base_;
+  std::array<arma::fmat, kFrameWnd> ul_phase_shift_per_symbol_;
+  for (size_t frame = 0; frame < kFrameWnd; frame++) {
+    ul_phase_base_[frame] = arma::fmat(
+        cfg->UeAntNum(), cfg->Frame().ClientUlPilotSymbols());
+    ul_phase_shift_per_symbol_[frame] = ul_phase_base_[frame].col(0);
+  }
+
   std::vector<std::thread> threads;
   threads.emplace_back(MasterToWorkerDynamicMaster, cfg.get(),
                        std::ref(event_queue), std::ref(complete_task_queue));
@@ -170,6 +181,7 @@ TEST(TestDemul, VaryingConfig) {
         std::ref(complete_task_queue), ptoks[i], std::ref(data_buffer),
         std::ref(ul_beam_matrices), std::ref(equal_buffer),
         std::ref(ue_spec_pilot_buffer), std::ref(demod_buffers),
+        std::ref(ul_phase_base_), std::ref(ul_phase_shift_per_symbol_),
         mac_sched.get(), phy_stats.get(), stats.get());
   }
 

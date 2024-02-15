@@ -45,12 +45,13 @@ class AgoraWorker {
   void WorkerThread(int tid);
   void CreateThreads();
   void JoinThreads();
+
+  std::vector<std::thread> workers_;
 #endif
 
   const size_t base_worker_core_offset_;
 
   Config* const config_;
-  std::vector<std::thread> workers_;
 
   MacScheduler* mac_sched_;
   Stats* stats_;

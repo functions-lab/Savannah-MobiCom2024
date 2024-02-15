@@ -69,8 +69,16 @@ class AgoraBuffer {
   inline Table<complex_float>& GetCalibDl() { return calib_dl_buffer_; }
   inline Table<complex_float>& GetCalib() { return calib_buffer_; }
 
+  inline std::array<arma::fmat, kFrameWnd>& GetUlPhaseBase() {
+    return ul_phase_base_;
+  }
+  inline std::array<arma::fmat, kFrameWnd>& GetUlPhaseShiftPerSymbol() {
+    return ul_phase_shift_per_symbol_;
+  }
+
  private:
   void AllocateTables();
+  void AllocatePhaseShifts();
   void FreeTables();
 
   Config* const config_;
@@ -92,6 +100,9 @@ class AgoraBuffer {
   Table<int8_t> dl_bits_buffer_;
   Table<int8_t> dl_bits_buffer_status_;
   Table<std::complex<int16_t>> dl_bcast_socket_buffer_;
+
+  std::array<arma::fmat, kFrameWnd> ul_phase_base_;
+  std::array<arma::fmat, kFrameWnd> ul_phase_shift_per_symbol_;
 
   Table<char> ul_socket_buffer_;
   char* dl_socket_buffer_;

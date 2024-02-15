@@ -16,6 +16,8 @@ DoDemul::DoDemul(
     Table<complex_float>& ue_spec_pilot_buffer,
     Table<complex_float>& equal_buffer,
     PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers,
+    std::array<arma::fmat, kFrameWnd>& ul_phase_base,
+    std::array<arma::fmat, kFrameWnd>& ul_phase_shift_per_symbol,
     MacScheduler* mac_sched, PhyStats* in_phy_stats, Stats* stats_manager)
     : Doer(config, tid),
       data_buffer_(data_buffer),
@@ -23,6 +25,8 @@ DoDemul::DoDemul(
       ue_spec_pilot_buffer_(ue_spec_pilot_buffer),
       equal_buffer_(equal_buffer),
       demod_buffers_(demod_buffers),
+      ul_phase_base_(ul_phase_base),
+      ul_phase_shift_per_symbol_(ul_phase_shift_per_symbol),
       mac_sched_(mac_sched),
       phy_stats_(in_phy_stats) {
   duration_stat_equal_ = stats_manager->GetDurationStat(DoerType::kEqual, tid);
@@ -221,10 +225,14 @@ EventData DoDemul::Launch(size_t tag) {
         theta_inc_f = theta_vec(cfg_->Frame().ClientUlPilotSymbols()-1) - theta_vec(0);
         // theta_inc /= (float)std::max(
         //     1, static_cast<int>(cfg_->Frame().ClientUlPilotSymbols() - 1));
+        ul_phase_base_[frame_id % kFrameWnd] = theta_vec.t();
+        ul_phase_shift_per_symbol_[frame_id % kFrameWnd](0, 0) = theta_inc_f;
       }
 
       // Apply previously calc'ed phase shift to data
       if (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols()) {
+        theta_vec = ul_phase_base_[frame_slot].t();
+        theta_inc_f = ul_phase_shift_per_symbol_[frame_slot](0, 0);
         float cur_theta_f = theta_vec(0) + (symbol_idx_ul * theta_inc_f);
         vec_equaled *= arma::cx_float(cos(-cur_theta_f), sin(-cur_theta_f));
       }
@@ -442,10 +450,14 @@ EventData DoDemul::Launch(size_t tag) {
             theta_mat.col(0);
         // theta_inc /= (float)std::max(
         //     1, static_cast<int>(cfg_->Frame().ClientUlPilotSymbols() - 1));
+        ul_phase_base_[frame_id % kFrameWnd] = theta_mat;
+        ul_phase_shift_per_symbol_[frame_id % kFrameWnd] = theta_inc;
       }
 
       // Apply previously calc'ed phase shift to data
       if (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols()) {
+        theta_mat = ul_phase_base_[frame_id % kFrameWnd];
+        theta_inc = ul_phase_shift_per_symbol_[frame_id % kFrameWnd];
         arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
         arma::cx_fmat mat_phase_correct =
             arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
@@ -783,10 +795,14 @@ EventData DoDemul::Launch(size_t tag) {
             theta_mat.col(0);
         // theta_inc /= (float)std::max(
         //     1, static_cast<int>(cfg_->Frame().ClientUlPilotSymbols() - 1));
+        ul_phase_base_[frame_id % kFrameWnd] = theta_mat;
+        ul_phase_shift_per_symbol_[frame_id % kFrameWnd] = theta_inc;
       }
 
       // Apply previously calc'ed phase shift to data
       if (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols()) {
+        theta_mat = ul_phase_base_[frame_id % kFrameWnd];
+        theta_inc = ul_phase_shift_per_symbol_[frame_id % kFrameWnd];
         arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
         arma::cx_fmat mat_phase_correct =
             arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
@@ -993,13 +1009,16 @@ EventData DoDemul::Launch(size_t tag) {
             theta_inc = theta_mat.col(cfg_->Frame().ClientUlPilotSymbols()-1) - theta_mat.col(0);
             theta_inc /= (float)std::max(
                 1, static_cast<int>(cfg_->Frame().ClientUlPilotSymbols() - 1));
+            ul_phase_base_[frame_id % kFrameWnd] = theta_mat;
+            ul_phase_shift_per_symbol_[frame_id % kFrameWnd] = theta_inc;
           }
 
           // apply previously calc'ed phase shift to data
           if (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols()) {
+            theta_mat = ul_phase_base_[frame_id % kFrameWnd];
+            theta_inc = ul_phase_shift_per_symbol_[frame_id % kFrameWnd];
             arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
             arma::cx_fmat mat_phase_correct = arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
-            // arma::cx_fmat mat_phase_correct = arma::cx_fmat(cos_lut_func(-cur_theta), sin_lut_func(-cur_theta));
             mat_equaled %= mat_phase_correct;
 
 #if !defined(TIME_EXCLUSIVE)
@@ -1089,23 +1108,3 @@ EventData DoDemul::Launch(size_t tag) {
   duration_stat_demul_->task_duration_[0] += GetTime::WorkerRdtsc() - start_demul_tsc;
   return EventData(EventType::kDemul, tag);
 }
-
-// // Look-Up Table-based sine function
-// inline arma::fmat DoDemul::sin_lut_func(const arma::fmat& angles) {
-//   arma::fmat result(angles.n_rows, angles.n_cols);
-//   for (int i = 0; i < angles.n_elem; ++i) {
-//     int index = static_cast<int>((angles(i) / lut_max_angle) * lut_size) % lut_size;
-//     result(i) = sin_lut(index);
-//   }
-//   return result;
-// }
-
-// // Look-Up Table-based cosine function
-// inline arma::fmat DoDemul::cos_lut_func(const arma::fmat& angles) {
-//   arma::fmat result(angles.n_rows, angles.n_cols);
-//   for (int i = 0; i < angles.n_elem; ++i) {
-//     int index = static_cast<int>((angles(i) / lut_max_angle) * lut_size) % lut_size;
-//     result(i) = cos_lut(index);
-//   }
-//   return result;
-// }
