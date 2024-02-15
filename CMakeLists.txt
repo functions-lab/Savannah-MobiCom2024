@@ -118,12 +118,14 @@ set(ENABLE_HDF5 False CACHE BOOL "ENABLE_HDF5 defaulting to 'False'")
 message(STATUS "ENABLE_HDF5:      ${ENABLE_HDF5}")
 set(TIME_EXCLUSIVE False CACHE BOOL "TIME_EXCLUSIVE defaulting to 'False'")
 message(STATUS "TIME_EXCLUSIVE:   ${TIME_EXCLUSIVE}")
-
 set(LDPC_TYPE FlexRAN CACHE STRING "LDPC_TYPE defaulting to 'FlexRAN', valid types are FlexRAN / ACC100")
 message(STATUS "LDPC_TYPE:        ${LDPC_TYPE}")
 set(LDPC_ENQ_BULK False CACHE BOOL "LDPC_ENQ_BULK defaulting to 'False'")
 message(STATUS "LDPC_ENQ_BULK:    ${LDPC_ENQ_BULK}")
-
+set(AVX512_MATOP False CACHE BOOL "AVX512_MATOP defaulting to 'False'")
+message(STATUS "AVX512_MATOP:     ${AVX512_MATOP}")
+set(SINGLE_THREAD False CACHE BOOL "ENABLE_SINGLE_THREAD defaulting to 'False'")
+message(STATUS "SINGLE_THREAD:    ${SINGLE_THREAD}")
 message(STATUS "--------------------------------\n--")
 
 if(RADIO_TYPE STREQUAL SOAPY_IRIS)
@@ -220,6 +222,25 @@ endif()
 if (${TIME_EXCLUSIVE})
   add_definitions(-DTIME_EXCLUSIVE)
   message("-- Time-exlusive: Report only timing but not other characteristics")
+endif()
+
+#AVX512 Matrix Operation (used in Dobeamweights.cc and DoDemul.cc)
+if (${AVX512_MATOP})
+  if (NOT ISA_AVX512)
+    message(FATAL_ERROR "AVX512_MATOP is enabled but the current machine does not support AVX512")
+  endif()
+  add_definitions(-DAVX512_MATOP)
+  message("-- AVX512_MATOP: Enable AVX512 matrix operation")
+else()
+  message("-- AVX512_MATOP: Disable AVX512 matrix operation, fall back to Armadillo")
+endif()
+
+#Single thread
+if (${SINGLE_THREAD})
+  add_definitions(-DSINGLE_THREAD)
+  message("-- SINGLE_THREAD: Forbit worker thread, only use main thread for processing")
+else()
+  message("-- SINGLE_THREAD: Enable worker thread (use multi-thread model)")
 endif()
 
 #Python

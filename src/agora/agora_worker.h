@@ -26,22 +26,14 @@ class AgoraWorker {
                        AgoraBuffer* buffer, FrameInfo* frame);
   ~AgoraWorker();
 
+#ifdef SINGLE_THREAD
   void RunWorker();
+#endif
 
  private:
+
+#ifdef SINGLE_THREAD
   void InitializeWorker();
-
-  const size_t base_worker_core_offset_;
-
-  Config* const config_;
-  std::vector<std::thread> workers_;
-
-  MacScheduler* mac_sched_;
-  Stats* stats_;
-  PhyStats* phy_stats_;
-  MessageInfo* message_;
-  AgoraBuffer* buffer_;
-  FrameInfo* frame_;
 
   std::vector<std::shared_ptr<Doer> > computers_vec;
   std::vector<EventType> events_vec;
@@ -49,6 +41,24 @@ class AgoraWorker {
   size_t cur_qid;
   size_t empty_queue_itrs;
   bool empty_queue;
+#else
+  void WorkerThread(int tid);
+  void CreateThreads();
+  void JoinThreads();
+
+  std::vector<std::thread> workers_;
+#endif
+
+  const size_t base_worker_core_offset_;
+
+  Config* const config_;
+
+  MacScheduler* mac_sched_;
+  Stats* stats_;
+  PhyStats* phy_stats_;
+  MessageInfo* message_;
+  AgoraBuffer* buffer_;
+  FrameInfo* frame_;
 };
 
 #endif  // AGORA_WORKER_H_

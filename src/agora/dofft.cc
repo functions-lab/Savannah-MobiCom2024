@@ -307,13 +307,15 @@ EventData DoFFT::Launch(size_t tag) {
 void DoFFT::FillOutputBuffer(complex_float* out_buf, size_t ant_id,
                              SymbolType symbol_type) const {
   bool partial_transpose = kUsePartialTrans;
-  // In special case of 2x2/4x4 MIMO, disable partial transpose to store desired
-  // data orders: for each (antenna, ue) pair, store subcarriers continuously
-  // This reduces the data gathering time for CSI estimation.
-  if ((cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2) ||
-      (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4)) {
-    if (symbol_type == SymbolType::kPilot || symbol_type == SymbolType::kUL) {
-      partial_transpose = false;
+  if (cfg_->SmallMimoAcc()) { // enables special case acceleration
+    // In special case of 2x2/4x4 MIMO, disable partial transpose to store
+    // desired data orders: for each (antenna, ue) pair, store subcarriers
+    // continuously. This reduces the data gathering time for CSI estimation.
+    if ((cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2) ||
+        (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4)) {
+      if (symbol_type == SymbolType::kPilot || symbol_type == SymbolType::kUL) {
+        partial_transpose = false;
+      }
     }
   }
 

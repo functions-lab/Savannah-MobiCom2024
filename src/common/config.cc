@@ -627,8 +627,21 @@ Config::Config(std::string jsonfilename)
   decode_thread_num_ = tdd_conf.value("decode_thread_num", 10);
   beam_thread_num_ = worker_thread_num_ - fft_thread_num_ - demul_thread_num_ -
                      decode_thread_num_;
+  small_mimo_acc_ = tdd_conf.value("small_mimo_acc", false);
+  if (small_mimo_acc_) {
+    RtAssert((bs_ant_num_ == 1 && ue_ant_num_ == 1) ||
+             (bs_ant_num_ == 2 && ue_ant_num_ == 2) ||
+             (bs_ant_num_ == 4 && ue_ant_num_ == 4),
+             "Small MIMO Acceleration is only supported for 1x1/2x2/4x4 MIMO");
+  }
 
   demul_block_size_ = tdd_conf.value("demul_block_size", 48);
+  if (small_mimo_acc_ && (demul_block_size_ != ofdm_data_num_)) {
+    AGORA_LOG_WARN("Demodulation block size must be equal to number of data "
+                   "subcarriers when small_mimo_acc is enabled. Setting "
+                   "demul_block_size to ofdm_data_num %zu\n", ofdm_data_num_);
+    demul_block_size_ = ofdm_data_num_;
+  }
   RtAssert(demul_block_size_ % kSCsPerCacheline == 0,
            "Demodulation block size must be a multiple of subcarriers per "
            "cacheline");
@@ -645,7 +658,8 @@ Config::Config(std::string jsonfilename)
       beam_block_size_ = pilot_sc_group_size_;
     }
 
-    //Set beam block size to the pilot sc group size so events arn't generated for the redundant sc
+    // Set beam block size to the pilot sc group size so events arn't generated
+    // for the redundant sc
     if ((beam_block_size_ % pilot_sc_group_size_) != 0) {
       AGORA_LOG_WARN(
           "beam_block_size(%zu) is not a multiple of pilot_sc_group_size(%zu). "
@@ -653,6 +667,12 @@ Config::Config(std::string jsonfilename)
           "settings\n",
           beam_block_size_, pilot_sc_group_size_);
     }
+  }
+  if (small_mimo_acc_ && (beam_block_size_ != ofdm_data_num_)) {
+    AGORA_LOG_WARN("Beamweight block size must be equal to number of data "
+                   "subcarriers when small_mimo_acc is enabled. Setting "
+                   "beam_block_size to ofdm_data_num %zu\n", ofdm_data_num_);
+    beam_block_size_ = ofdm_data_num_;
   }
   beam_events_per_symbol_ = 1 + (ofdm_data_num_ - 1) / beam_block_size_;
 
