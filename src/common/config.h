@@ -249,30 +249,6 @@ class Config {
                                      : this->dl_modulation_;
   }
 
-  inline size_t ModOrder(Direction dir) const {
-      if (dir == Direction::kUplink) {
-          if (ul_modulation_ == "16QAM") {
-              return 4;
-          } else if (ul_modulation_ == "QPSK") {
-              return 2;
-          } else if (ul_modulation_ == "64QAM") {
-              return 6;
-          } else {
-              return 0;
-          }
-      } else {
-          if (ul_modulation_ == "16QAM") {
-              return 4;
-          } else if (ul_modulation_ == "QPSK") {
-              return 2;
-          } else if (ul_modulation_ == "64QAM") {
-              return 6;
-          } else {
-              return 0;
-          }
-      }
-  }
-
   inline size_t ModOrderBits(Direction dir) const {
     return dir == Direction::kUplink ? this->ul_mod_order_bits_
                                      : this->dl_mod_order_bits_;

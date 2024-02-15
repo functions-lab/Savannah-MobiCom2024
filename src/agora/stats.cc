@@ -492,7 +492,7 @@ void Stats::PrintPerFrameDone(PrintType print_type, size_t frame_id) const {
         break;
       case (PrintType::kDecode):
         AGORA_LOG_INFO(
-            "Main [frame %zu + %.2f ms]: Completed LDPC decoding (%zu UL "
+            "Main [frame %zu + %.4f ms]: Completed LDPC decoding (%zu UL "
             "symbols)\n",
             frame_id,
             MasterGetDeltaMs(TsType::kDecodeDone, TsType::kFirstSymbolRX,
