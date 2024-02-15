@@ -976,60 +976,62 @@ EventData DoDemul::Launch(size_t tag) {
         size_t start_equal_tsc3 = GetTime::WorkerRdtsc();
         duration_stat_equal_->task_duration_[2] +=
             start_equal_tsc3 - start_equal_tsc2;
-
-        // Enable phase shift calibration
-        if (cfg_->Frame().ClientUlPilotSymbols() > 0) {
-          // Calc new phase shift
-          if (symbol_idx_ul < cfg_->Frame().ClientUlPilotSymbols()) {  
-            if (symbol_idx_ul == 0 && cur_sc_id == 0) {
-              // Reset previous frame
-              arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
-                  ue_spec_pilot_buffer_[(frame_id - 1) % kFrameWnd]);
-              arma::cx_fmat mat_phase_shift(phase_shift_ptr, cfg_->UeAntNum(),
-                                            cfg_->Frame().ClientUlPilotSymbols(),
-                                            false);
-              mat_phase_shift.fill(0);
-            }
+        auto ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
+        if (symbol_idx_ul <
+            cfg_->Frame().ClientUlPilotSymbols()) {  // Calc new phase shift
+          if (symbol_idx_ul == 0 && cur_sc_id == 0) {
+            // Reset previous frame
             arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
-                &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
-                                      [symbol_idx_ul * cfg_->UeAntNum()]);
-            arma::cx_fmat mat_phase_shift(phase_shift_ptr, cfg_->UeAntNum(), 1,
-                                          false);
-            arma::cx_fmat shift_sc =
-                sign(mat_equaled % conj(ue_pilot_data_.col(cur_sc_id)));
-            mat_phase_shift += shift_sc;
+                ue_spec_pilot_buffer_[(frame_id - 1) % kFrameWnd]);
+            arma::cx_fmat mat_phase_shift(
+                phase_shift_ptr, cfg_->SpatialStreamsNum(),
+                cfg_->Frame().ClientUlPilotSymbols(), false);
+            mat_phase_shift.fill(0);
           }
-          if (symbol_idx_ul == cfg_->Frame().ClientUlPilotSymbols() && cur_sc_id == 0) { 
-            arma::cx_float* pilot_corr_ptr = reinterpret_cast<arma::cx_float*>(
-                ue_spec_pilot_buffer_[frame_id % kFrameWnd]);
-            arma::cx_fmat pilot_corr_mat(pilot_corr_ptr, cfg_->UeAntNum(),
-                                        cfg_->Frame().ClientUlPilotSymbols(),
-                                        false);
-            theta_mat = arg(pilot_corr_mat);
-            theta_inc = theta_mat.col(cfg_->Frame().ClientUlPilotSymbols()-1) - theta_mat.col(0);
-            theta_inc /= (float)std::max(
-                1, static_cast<int>(cfg_->Frame().ClientUlPilotSymbols() - 1));
-            ul_phase_base_[frame_id % kFrameWnd] = theta_mat;
-            ul_phase_shift_per_symbol_[frame_id % kFrameWnd] = theta_inc;
-          }
+          arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
+              &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
+                                    [symbol_idx_ul * cfg_->SpatialStreamsNum()]);
+          arma::cx_fmat mat_phase_shift(phase_shift_ptr,
+                                        cfg_->SpatialStreamsNum(), 1, false);
 
-          // apply previously calc'ed phase shift to data
-          if (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols()) {
-            theta_mat = ul_phase_base_[frame_id % kFrameWnd];
-            theta_inc = ul_phase_shift_per_symbol_[frame_id % kFrameWnd];
-            arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
-            arma::cx_fmat mat_phase_correct = arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
-            mat_equaled %= mat_phase_correct;
+          arma::cx_fvec cur_sc_pilot_data = ue_pilot_data_.col(cur_sc_id);
+          arma::cx_fmat shift_sc =
+              arma::sign(mat_equaled % conj(cur_sc_pilot_data(ue_list)));
+          mat_phase_shift += shift_sc;
+        }
+        // apply previously calc'ed phase shift to data
+        else if (cfg_->Frame().ClientUlPilotSymbols() > 0) {
+          arma::cx_float* pilot_corr_ptr = reinterpret_cast<arma::cx_float*>(
+              ue_spec_pilot_buffer_[frame_id % kFrameWnd]);
+          arma::cx_fmat pilot_corr_mat(pilot_corr_ptr, cfg_->SpatialStreamsNum(),
+                                      cfg_->Frame().ClientUlPilotSymbols(),
+                                      false);
+          arma::fmat theta_mat = arg(pilot_corr_mat);
+          arma::fmat theta_inc =
+              arma::zeros<arma::fmat>(cfg_->SpatialStreamsNum(), 1);
+          for (size_t s = 1; s < cfg_->Frame().ClientUlPilotSymbols(); s++) {
+            arma::fmat theta_diff = theta_mat.col(s) - theta_mat.col(s - 1);
+            theta_inc += theta_diff;
+          }
+          theta_inc /= (float)std::max(
+              1, static_cast<int>(cfg_->Frame().ClientUlPilotSymbols() - 1));
+          arma::fmat cur_theta = theta_mat.col(0) + (symbol_idx_ul * theta_inc);
+          arma::cx_fmat mat_phase_correct =
+              arma::zeros<arma::cx_fmat>(size(cur_theta));
+          mat_phase_correct.set_real(cos(-cur_theta));
+          mat_phase_correct.set_imag(sin(-cur_theta));
+          mat_equaled %= mat_phase_correct;
 
 #if !defined(TIME_EXCLUSIVE)
-            auto ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
-            const size_t data_symbol_idx_ul =
-                symbol_idx_ul - this->cfg_->Frame().ClientUlPilotSymbols();
-            // Measure EVM from ground truth
+          auto ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
+          const size_t data_symbol_idx_ul =
+              symbol_idx_ul - this->cfg_->Frame().ClientUlPilotSymbols();
+          // Measure EVM from ground truth
+          if (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols()) {
             phy_stats_->UpdateEvm(frame_id, data_symbol_idx_ul, cur_sc_id,
                                   mat_equaled.col(0), ue_list);
-#endif
           }
+#endif
         }
         duration_stat_equal_->task_count_++;
         duration_stat_equal_->task_duration_[3] +=
