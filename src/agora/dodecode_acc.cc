@@ -350,11 +350,11 @@ EventData DoDecode_ACC::Launch(size_t tag) {
         "%zu, ue: %zu offset %zu\n",
         tid_, frame_id, symbol_id, cur_cb_id, ue_id, symbol_offset);
   }
-  // std::cout <<"symbol_idx_ul is: " << symbol_idx_ul << "ue_id is: " << ue_id << std::endl;
+  
+#if defined(ENQUEUE_BULK)
   if ((symbol_idx_ul == num_ul_syms - 1) && (ue_id == num_ue - 1)) {
     // std::cout<<"[In If]callling doDecode launch, Frame id is " << frame_id << " symbol id is: " << symbol_id <<std::endl;
     size_t start_tsc = GetTime::WorkerRdtsc();
-    // for (int i = 0; i < burst_sz; ++i) {
 
     int8_t *llr_buffer_ptr;
     uint8_t *decoded_buffer_ptr;
@@ -362,9 +362,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     struct rte_mbuf *m_head_out;
     // std::cout<<"inside the loop " << std::endl;
     size_t index = 0;
-    // size_t index = ue_id * num_ul_syms + symbol_idx_ul;
-    // std::cout<<"index is: " << index << std::endl;
-    // std::cout << "alternate index is: " << alternate_index << std::endl;
 
     for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){
       for (size_t temp_idx = 0; temp_idx < num_ul_syms; temp_idx++){
@@ -376,33 +373,9 @@ EventData DoDecode_ACC::Launch(size_t tag) {
             (uint8_t *)decoded_buffers_[frame_slot][temp_idx][temp_ue_id] +
             (cur_cb_id * Roundup<64>(num_bytes_per_cb));
 
-        // if (kPrintDecodedData) {
-        //   std::printf("Decoded data before putting to ACC100\n");
-        //   for (size_t i = 0; i < (ldpc_config.NumCbLen() >> 3); i++) {
-        //     std::printf("%u ", *(decoded_buffer_ptr + i));
-        //   }
-        //   std::printf("\n");
-        // }
-
-        // size_t start_tsc1 = GetTime::WorkerRdtsc();
-        // duration_stat_->task_duration_[1] += start_tsc1 - start_tsc;
-        // struct rte_mbuf *inmbuf;
-        // struct rte_mbuf *outmbuf;
-
-        // int ret_init_op = init_op_data_objs_from_table(*inputs, llr_buffer_ptr, in_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen(), in_mbuf);
-        // std::cout<<"ret_init_op is " << ret_init_op << std::endl;
         char *data;
         struct rte_bbdev_op_data *bufs = *inputs;
-        // std::cout << rte_mempool_avail_count(mbuf_pool) << std::endl;
-        // if (rte_mempool_avail_count(mbuf_pool) == 0) {
-        //     printf("No more mbufs available in the pool! - input\n");
-        //     return -1;
-        // }
         m_head = rte_pktmbuf_alloc(in_mbuf_pool);
-        // if (m_head == nullptr) {
-        //     std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
-        //     return -1;
-        // }
 
         bufs[0].data = m_head;
         bufs[0].offset = 0;
@@ -415,21 +388,8 @@ EventData DoDecode_ACC::Launch(size_t tag) {
                   ldpc_config.NumCbCodewLen());
         bufs[0].length += ldpc_config.NumCbCodewLen();
 
-        // int ret_init_op = init_op_output_objs_from_buffer(*hard_outputs, decoded_buffer_ptr, out_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen(), out_mbuf);
-        // std::cout<<"ret_init_op is " << ret_init_op << std::endl;
-
-        // std::cout << "out: " << rte_mempool_avail_count(mbuf_pool) << std::endl;
-        // if (rte_mempool_avail_count(mbuf_pool) == 0) {
-        // 	printf("No more mbufs available in the pool! - output\n");
-        // 	return -1;
-        // }
-
         rte_bbdev_op_data *bufs_out = *hard_outputs;
         m_head_out = rte_pktmbuf_alloc(out_mbuf_pool);
-        // if (m_head == nullptr) {
-        // 	std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
-        // 	return -1;  // Exit the program with an error code
-        // }
 
         bufs_out[0].data = m_head_out;
         bufs_out[0].offset = 0;
@@ -455,13 +415,9 @@ EventData DoDecode_ACC::Launch(size_t tag) {
           }
           std::printf("\n");
         }
-
-        // std::cout<<"index is: " << index << std::endl;
         ref_dec_op[index]->ldpc_dec.input = *inputs[0];
         ref_dec_op[index]->ldpc_dec.hard_output = *hard_outputs[0];
 
-        // rte_pktmbuf_free(out_mbuf);
-        // std::cout<<"no error when putting to ldpc_config" << std::endl;
 
         if (kPrintDecodedData) {
           std::printf("Decoded data after putting to LDPC\n");
@@ -476,29 +432,16 @@ EventData DoDecode_ACC::Launch(size_t tag) {
       }
   }
 
-    // std::cout<<"after for loop " << std::endl;
-
     size_t start_tsc1 = GetTime::WorkerRdtsc();
     duration_stat_->task_duration_[1] += start_tsc1 - start_tsc;
-    // size_t start_tsc2 = GetTime::WorkerRdtsc();
-    // duration_stat_->task_duration_[2] += start_tsc2 - start_tsc1;
 
     uint16_t enq = 0, deq = 0;
-    // bool first_time = true;
     uint64_t start_time = 0, last_time = 0;
     
-    // std::cout<<"before enq loop " << std::endl;  
     for (enq = 0, deq = 0; enq < (num_ul_syms * num_ue);) {
       enq += rte_bbdev_enqueue_ldpc_dec_ops(0, 0, &ref_dec_op[enq], 1);
       deq += rte_bbdev_dequeue_ldpc_dec_ops(0, 0, &ops_deq[deq], enq - deq);
-      // std::cout<<"afater enqueue"<<std::endl;
-      // std::cout<<"enq is: " << enq << std::endl;
     }
-    // std::cout<<"after enq loop " << std::endl;
-
-
-    // deq += rte_bbdev_dequeue_ldpc_dec_ops(0, 0, &ops_deq[0], enq - deq);
-    // std::cout<<"afater dequeue"<<std::endl;
 
     int retry_count = 0;
 
@@ -508,7 +451,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
       retry_count++;
     }
 
-    // std::cout<< "enq is " << enq << " while deq is: " << deq << std::endl;
     AGORA_LOG_INFO("ACC100: enq = %d, deq = %d\n", enq, deq);
     // commented for now
     // struct rte_mbuf *decoded_mbuf = (struct rte_mbuf *)(hard_outputs[0]->data);
@@ -518,7 +460,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
 
     if (cfg_->ScrambleEnabled()) {
       scrambler_->Descramble(decoded_buffer_ptr, num_bytes_per_cb);
-      // std::cout<<"scramble enabled";
     }
 
     size_t start_tsc2 = GetTime::WorkerRdtsc();
@@ -597,9 +538,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
         // memcmp(rte_pktmbuf_mtod_offset(m, uint32_t *, 0),
         phy_stats_->UpdateBlockErrors(temp_ue_id, symbol_offset, frame_slot, BLER);
       }
-
-    // if ((kEnableMac == false) && (kPrintPhyStats == true) 
-      // rte_pktmbuf_free(temp_m);
     }
 
     size_t end = GetTime::WorkerRdtsc();
@@ -619,161 +557,295 @@ EventData DoDecode_ACC::Launch(size_t tag) {
                   GetTime::CyclesToUs(duration, cfg_->FreqGhz()));
     }
 
-    // if (in_mbuf_pool != NULL) {
-    //   rte_mempool_free(in_mbuf_pool);
-    //   in_mbuf_pool = NULL;
-    // }
-
-    // if (out_mbuf_pool != NULL) {
-    //   rte_mempool_free(out_mbuf_pool);
-    //   out_mbuf_pool = NULL;
-    // }
-
-    // rte_bbdev_stop(dev_id);
-
-    // rte_pktmbuf_free(m);
-    // if (*inputs) {
-    //   free(*inputs);
-    // }
-    // if (*hard_outputs) {
-    //     free(*hard_outputs);
-    // }
-
-    // // Then, free the memory allocated for the pointers
-    // free(inputs);
-    // free(hard_outputs);
-
-    // rte_pktmbuf_free(m_head);
-    // rte_pktmbuf_free(m_head_out);
   }
-  // else {
-  //   std::cout<<"[Out If]callling doDecode launch, Frame id is " << frame_id << " symbol id is: " << symbol_id <<std::endl;
-  //   size_t start_tsc_enq = GetTime::WorkerRdtsc();
-  //   int8_t *llr_buffer_ptr;
-  //   uint8_t *decoded_buffer_ptr;
-  //   struct rte_mbuf *m_head;
-  //   struct rte_mbuf *m_head_out;
-  //   // std::cout<<"inside the loop " << std::endl;
-  //   // size_t index = 0;
-  //   size_t index = ue_id * num_ul_syms + symbol_idx_ul;
+#else
+  if ((symbol_idx_ul == num_ul_syms - 1) && (ue_id == num_ue - 1)) {
+    // std::cout<<"[In If]callling doDecode launch, Frame id is " << frame_id << " symbol id is: " << symbol_id <<std::endl;
+    size_t start_tsc = GetTime::WorkerRdtsc();
 
-  //   // for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){
-  //     // for (size_t temp_idx = 0; temp_idx < num_ul_syms; temp_idx++){
-  //   llr_buffer_ptr = demod_buffers_[frame_slot][symbol_idx_ul][ue_id] +
-  //                           (cfg_->ModOrderBits(Direction::kUplink) *
-  //                             (ldpc_config.NumCbCodewLen() * cur_cb_id));
+    int8_t *llr_buffer_ptr;
+    uint8_t *decoded_buffer_ptr;
+    struct rte_mbuf *m_head;
+    struct rte_mbuf *m_head_out;
+    // size_t index = ue_id * (num_ul_syms * num_ue) + symbol_idx_ul * num_ue + ue_id;
+    // size_t index = ue_id * num_ul_syms + symbol_idx_ul;
+    // std::cout<<"enq_index is: " << enq_index << std::endl;
 
-  //   decoded_buffer_ptr =
-  //       (uint8_t *)decoded_buffers_[frame_slot][symbol_idx_ul][ue_id] +
-  //       (cur_cb_id * Roundup<64>(num_bytes_per_cb));
+    llr_buffer_ptr = demod_buffers_[frame_slot][symbol_idx_ul][ue_id] +
+                            (cfg_->ModOrderBits(Direction::kUplink) *
+                              (ldpc_config.NumCbCodewLen() * cur_cb_id));
 
-  //   if (kPrintDecodedData) {
-  //     std::printf("Decoded data before putting to ACC100\n");
-  //     for (size_t i = 0; i < (ldpc_config.NumCbLen() >> 3); i++) {
-  //       std::printf("%u ", *(decoded_buffer_ptr + i));
-  //     }
-  //     std::printf("\n");
-  //   }
+    decoded_buffer_ptr =
+        (uint8_t *)decoded_buffers_[frame_slot][symbol_idx_ul][ue_id] +
+        (cur_cb_id * Roundup<64>(num_bytes_per_cb));
 
-  //   // size_t start_tsc1 = GetTime::WorkerRdtsc();
-  //   // duration_stat_->task_duration_[1] += start_tsc1 - start_tsc;
-  //   // struct rte_mbuf *inmbuf;
-  //   // struct rte_mbuf *outmbuf;
+    // struct rte_mbuf *inmbuf;
+    // struct rte_mbuf *outmbuf;
 
-  //   // int ret_init_op = init_op_data_objs_from_table(*inputs, llr_buffer_ptr, in_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen(), in_mbuf);
-  //   // std::cout<<"ret_init_op is " << ret_init_op << std::endl;
-  //   char *data;
-  //   struct rte_bbdev_op_data *bufs = *inputs;
-  //   // std::cout << rte_mempool_avail_count(mbuf_pool) << std::endl;
-  //   // if (rte_mempool_avail_count(mbuf_pool) == 0) {
-  //   //     printf("No more mbufs available in the pool! - input\n");
-  //   //     return -1;
-  //   // }
-  //   m_head = rte_pktmbuf_alloc(in_mbuf_pool);
-  //   // if (m_head == nullptr) {
-  //   //     std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
-  //   //     return -1;
-  //   // }
+    // int ret_init_op = init_op_data_objs_from_table(*inputs, llr_buffer_ptr, in_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen(), in_mbuf);
+    // std::cout<<"ret_init_op is " << ret_init_op << std::endl;
+    char *data;
+    struct rte_bbdev_op_data *bufs = *inputs;
+    // std::cout << rte_mempool_avail_count(mbuf_pool) << std::endl;
+    // if (rte_mempool_avail_count(mbuf_pool) == 0) {
+    //     printf("No more mbufs available in the pool! - input\n");
+    //     return -1;
+    // }
+    m_head = rte_pktmbuf_alloc(in_mbuf_pool);
+    // if (m_head == nullptr) {
+    //     std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
+    //     return -1;
+    // }
 
-  //   bufs[0].data = m_head;
-  //   bufs[0].offset = 0;
-  //   bufs[0].length = 0;
+    bufs[0].data = m_head;
+    bufs[0].offset = 0;
+    bufs[0].length = 0;
 
-  //   data = rte_pktmbuf_append(m_head, ldpc_config.NumCbCodewLen());
+    data = rte_pktmbuf_append(m_head, ldpc_config.NumCbCodewLen());
 
-  //   // Copy data from demod_data to the mbuf
-  //   rte_memcpy(data, llr_buffer_ptr + (0 * ldpc_config.NumCbCodewLen()),
-  //             ldpc_config.NumCbCodewLen());
-  //   bufs[0].length += ldpc_config.NumCbCodewLen();
+    // Copy data from demod_data to the mbuf
+    rte_memcpy(data, llr_buffer_ptr + (0 * ldpc_config.NumCbCodewLen()),
+              ldpc_config.NumCbCodewLen());
+    bufs[0].length += ldpc_config.NumCbCodewLen();
 
-  //   // int ret_init_op = init_op_output_objs_from_buffer(*hard_outputs, decoded_buffer_ptr, out_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen(), out_mbuf);
-  //   // std::cout<<"ret_init_op is " << ret_init_op << std::endl;
+    // int ret_init_op = init_op_output_objs_from_buffer(*hard_outputs, decoded_buffer_ptr, out_mbuf_pool, 1, min_alignment, ldpc_config.NumCbCodewLen(), out_mbuf);
+    // std::cout<<"ret_init_op is " << ret_init_op << std::endl;
 
-  //   // std::cout << "out: " << rte_mempool_avail_count(mbuf_pool) << std::endl;
-  //   // if (rte_mempool_avail_count(mbuf_pool) == 0) {
-  //   // 	printf("No more mbufs available in the pool! - output\n");
-  //   // 	return -1;
-  //   // }
+    // std::cout << "out: " << rte_mempool_avail_count(mbuf_pool) << std::endl;
+    // if (rte_mempool_avail_count(mbuf_pool) == 0) {
+    // 	printf("No more mbufs available in the pool! - output\n");
+    // 	return -1;
+    // }
 
-  //   rte_bbdev_op_data *bufs_out = *hard_outputs;
-  //   m_head_out = rte_pktmbuf_alloc(out_mbuf_pool);
-  //   // if (m_head == nullptr) {
-  //   // 	std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
-  //   // 	return -1;  // Exit the program with an error code
-  //   // }
+    rte_bbdev_op_data *bufs_out = *hard_outputs;
+    m_head_out = rte_pktmbuf_alloc(out_mbuf_pool);
+    // if (m_head == nullptr) {
+    // 	std::cerr << "Error: Unable to create mbuf pool: " << rte_strerror(rte_errno) << std::endl;
+    // 	return -1;  // Exit the program with an error code
+    // }
 
-  //   bufs_out[0].data = m_head_out;
-  //   bufs_out[0].offset = 0;
-  //   bufs_out[0].length = 0;
+    bufs_out[0].data = m_head_out;
+    bufs_out[0].offset = 0;
+    bufs_out[0].length = 0;
 
-  //   // Prepare the mbuf to receive the output data
-  //   char *data_out = rte_pktmbuf_append(m_head, ldpc_config.NumCbCodewLen());
-  //   assert(data_out == RTE_PTR_ALIGN(data_out, min_alignment));
+    // Prepare the mbuf to receive the output data
+    char *data_out = rte_pktmbuf_append(m_head, ldpc_config.NumCbCodewLen());
+    assert(data_out == RTE_PTR_ALIGN(data_out, min_alignment));
 
-  //   // BUG: This line causes a irregular stop of the program when fft_size = 4096,
-  //   //      ofdm_data_num = 3168 = demul_block_size = beam_block_size, SISO, any
-  //   //      sampling rate.
-  //   // Assuming you will copy data from decoded_buffer_ptr to data
-  //   rte_memcpy(data_out, decoded_buffer_ptr + 0 * ldpc_config.NumCbCodewLen(),
-  //             ldpc_config.NumCbCodewLen());
+    // BUG: This line causes a irregular stop of the program when fft_size = 4096,
+    //      ofdm_data_num = 3168 = demul_block_size = beam_block_size, SISO, any
+    //      sampling rate.
+    // Assuming you will copy data from decoded_buffer_ptr to data
+    rte_memcpy(data_out, decoded_buffer_ptr + 0 * ldpc_config.NumCbCodewLen(),
+              ldpc_config.NumCbCodewLen());
 
-  //   bufs_out[0].length += ldpc_config.NumCbCodewLen();
+    bufs_out[0].length += ldpc_config.NumCbCodewLen();
 
-  //   if (kPrintDecodedData) {
-  //     std::printf("Decoded data after init hard_outputs\n");
-  //     for (size_t i = 0; i < (ldpc_config.NumCbLen() >> 3); i++) {
-  //       std::printf("%u ", *(decoded_buffer_ptr + i));
-  //     }
-  //     std::printf("\n");
-  //   }
+    ref_dec_op[enq_index]->ldpc_dec.input = *inputs[0];
+    ref_dec_op[enq_index]->ldpc_dec.hard_output = *hard_outputs[0];
 
-  //   // std::cout<<"index is: " << index << std::endl;
-  //   ref_dec_op[index]->ldpc_dec.input = *inputs[0];
+    // rte_pktmbuf_free(out_mbuf);
+    rte_pktmbuf_free(m_head);
+    rte_pktmbuf_free(m_head_out);
 
-  //   ref_dec_op[index]->ldpc_dec.hard_output = *hard_outputs[0];
+    size_t start_tsc1 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc1 - start_tsc;
+    
+    // bool first_time = true;
+    uint64_t start_time = 0, last_time = 0;
+    
+    enq += rte_bbdev_enqueue_ldpc_dec_ops(0, 0, &ref_dec_op[enq], 1);
 
-  //   // rte_pktmbuf_free(out_mbuf);
-  //   // std::cout<<"no error when putting to ldpc_config" << std::endl;
+    int retry_count = 0;
 
-  //   if (kPrintDecodedData) {
-  //     std::printf("Decoded data after putting to LDPC\n");
-  //     for (size_t i = 0; i < (ldpc_config.NumCbLen() >> 3); i++) {
-  //       std::printf("%u ", *(decoded_buffer_ptr + i));
-  //     }
-  //     std::printf("\n");
-  //   }
-  //   // index++;
-  //   rte_pktmbuf_free(m_head);
-  //   rte_pktmbuf_free(m_head_out);
-  // //     }
-  // // }
+    while (deq < enq && retry_count < MAX_DEQUEUE_TRIAL) {
+      // rte_delay_ms(10);  // Wait for 10 milliseconds
+      deq += rte_bbdev_dequeue_ldpc_dec_ops(0, 0, &ops_deq[deq], enq - deq);
+      retry_count++;
+    }
+    AGORA_LOG_INFO("ACC100: enq = %d, deq = %d\n", enq, deq);
 
-  //   // std::cout<<"after for loop " << std::endl;
+    enq = 0;
+    deq = 0;
+    enq_index = 0;
 
-  //   size_t start_tsc1_enq = GetTime::WorkerRdtsc();
-  //   // duration_stat_->task_duration_[1] += start_tsc1_enq - start_tsc_enq;
+    // commented for now
+    // struct rte_mbuf *decoded_mbuf = (struct rte_mbuf *)(hard_outputs[0]->data);
+    // Assuming data is contiguous in the mbuf, and not scattered across multiple segments
+    // char *ldpc_decoded_data = rte_pktmbuf_mtod(decoded_mbuf, char *);
+    // // rte_memcpy(decoded_buffer_ptr, ldpc_decoded_data, hard_outputs[0]->length);
 
-  // }
+    if (cfg_->ScrambleEnabled()) {
+      scrambler_->Descramble(decoded_buffer_ptr, num_bytes_per_cb);
+      // std::cout<<"scramble enabled";
+    }
+
+    size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[2] += start_tsc2 - start_tsc1;
+
+    size_t BLER(0);
+
+    uint8_t rx_byte[MAX_RX_BYTE_SIZE];
+    uint8_t tx_byte;
+    uint32_t tx_word;
+    size_t block_error(0);
+
+    if ((kEnableMac == false) && (kPrintPhyStats == true) &&
+        (symbol_idx_ul >= cfg_->Frame().ClientUlPilotSymbols())) {
+      // get mbuf from the ops_deq
+
+      struct rte_bbdev_op_ldpc_dec *ops_td;
+      unsigned int i = 0;
+      struct rte_bbdev_op_data *hard_output;
+      struct rte_mbuf *temp_m;
+      size_t offset = 0;
+
+      for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){
+        size_t BLER(0);
+        for (size_t temp_idx = 0; temp_idx < num_ul_syms; temp_idx++){
+          tx_byte = static_cast<uint8_t>(
+            cfg_->GetInfoBits(cfg_->UlBits(), Direction::kUplink, temp_idx,
+                              temp_ue_id, cur_cb_id)[i]);
+          phy_stats_->UpdateBitErrors(temp_ue_id, symbol_offset, frame_slot,
+                                      tx_byte, tx_byte);
+          tx_word = static_cast<uint8_t>(tx_byte);
+
+          ops_td = &ops_deq[i]->ldpc_dec;
+          hard_output = &ops_td->hard_output;
+          temp_m = hard_output->data;
+          uint32_t* temp_data = rte_pktmbuf_mtod(temp_m, uint32_t*);
+          RtAssert(num_bytes_per_cb == rte_pktmbuf_data_len(temp_m),
+                   "num_bytes_per_cb does not match the length of the mbuf.");
+
+          // If temp_m contains multiple bytes, use memcmp to compare
+          if (kPrintACC100Byte){
+            if (frame_id > 1000 && frame_id % 1000 == 0) {
+              std::cout << "CB size = " << num_bytes_per_cb << " bytes\n";
+              std::cout << "Content of the CB (in uint32):\n";
+              print_uint32(temp_data, num_bytes_per_cb);
+              std::cout << std::endl << std::endl;
+            }
+          }
+
+          // std::cout << "Content of tx_word: " << tx_word << std::endl; // Prints in hexadecimal format
+          if (memcmp(temp_data, &tx_word, num_bytes_per_cb) != 0) {
+            // Data matches, do something
+            block_error++;
+          }
+        // if (memcmp(rte_pktmbuf_mtod_offset(temp_m, uint32_t *, 0),
+        //     hard_data_orig->segments[0].addr,
+        //     hard_data_orig->segments[0].length))
+        //   BLER++;
+
+        
+        // struct rte_mbuf *segment = temp_m;
+        // while (segment) {
+        //   // Get the data pointer and data length of the segment
+        //   uint8_t *segment_data = rte_pktmbuf_mtod(segment, uint8_t *);
+        //   size_t segment_length = rte_pktmbuf_data_len(segment);
+        //   // Copy the segment data into rx_byte at the current offset
+        //   memcpy(&rx_byte[offset], segment_data, segment_length);
+        //   offset += segment_length;
+        //   segment = segment->next;
+        // }
+          i++;
+        }
+        phy_stats_->UpdateDecodedBits(temp_ue_id, symbol_offset, frame_slot,
+                                      num_bytes_per_cb * 8);
+        phy_stats_->IncrementDecodedBlocks(temp_ue_id, symbol_offset, frame_slot);
+        // memcmp(rte_pktmbuf_mtod_offset(m, uint32_t *, 0),
+        phy_stats_->UpdateBlockErrors(temp_ue_id, symbol_offset, frame_slot, BLER);
+      }
+    }
+
+    size_t end = GetTime::WorkerRdtsc();
+    size_t duration_3 = end - start_tsc2;
+    size_t duration = end - start_tsc;
+
+    rte_pktmbuf_free(m_head);
+    rte_pktmbuf_free(m_head_out);
+
+    duration_stat_->task_duration_[3] += duration_3;
+    duration_stat_->task_duration_[0] += duration;
+    // duration_stat_->task_duration_[0] += 0;
+
+    duration_stat_->task_count_++;
+    if (GetTime::CyclesToUs(duration, cfg_->FreqGhz()) > 500) {
+      std::printf("Thread %d Decode takes %.2f\n", tid_,
+                  GetTime::CyclesToUs(duration, cfg_->FreqGhz()));
+    }
+  }
+  else {
+    // std::cout<<"symbol_idx_ul is: " << symbol_idx_ul << ", ue_id is: " << ue_id << std::endl;
+    size_t start_tsc_else = GetTime::WorkerRdtsc();
+
+    int8_t *llr_buffer_ptr;
+    uint8_t *decoded_buffer_ptr;
+    struct rte_mbuf *m_head;
+    struct rte_mbuf *m_head_out;
+
+    llr_buffer_ptr = demod_buffers_[frame_slot][symbol_idx_ul][ue_id] +
+                            (cfg_->ModOrderBits(Direction::kUplink) *
+                              (ldpc_config.NumCbCodewLen() * cur_cb_id));
+
+    decoded_buffer_ptr =
+        (uint8_t *)decoded_buffers_[frame_slot][symbol_idx_ul][ue_id] +
+        (cur_cb_id * Roundup<64>(num_bytes_per_cb));
+
+    char *data;
+    struct rte_bbdev_op_data *bufs = *inputs;
+
+    m_head = rte_pktmbuf_alloc(in_mbuf_pool);
+
+    bufs[0].data = m_head;
+    bufs[0].offset = 0;
+    bufs[0].length = 0;
+
+    data = rte_pktmbuf_append(m_head, ldpc_config.NumCbCodewLen());
+
+        // Copy data from demod_data to the mbuf
+    rte_memcpy(data, llr_buffer_ptr + (0 * ldpc_config.NumCbCodewLen()),
+              ldpc_config.NumCbCodewLen());
+    bufs[0].length += ldpc_config.NumCbCodewLen();
+
+
+    rte_bbdev_op_data *bufs_out = *hard_outputs;
+    m_head_out = rte_pktmbuf_alloc(out_mbuf_pool);
+
+    bufs_out[0].data = m_head_out;
+    bufs_out[0].offset = 0;
+    bufs_out[0].length = 0;
+
+    // Prepare the mbuf to receive the output data
+    char *data_out = rte_pktmbuf_append(m_head, ldpc_config.NumCbCodewLen());
+    assert(data_out == RTE_PTR_ALIGN(data_out, min_alignment));
+
+    // BUG: This line causes a irregular stop of the program when fft_size = 4096,
+    //      ofdm_data_num = 3168 = demul_block_size = beam_block_size, SISO, any
+    //      sampling rate.
+    // Assuming you will copy data from decoded_buffer_ptr to data
+    rte_memcpy(data_out, decoded_buffer_ptr + 0 * ldpc_config.NumCbCodewLen(),
+              ldpc_config.NumCbCodewLen());
+    bufs_out[0].length += ldpc_config.NumCbCodewLen();
+
+        // std::cout<<"index is: " << index << std::endl;
+    ref_dec_op[enq_index]->ldpc_dec.input = *inputs[0];
+    ref_dec_op[enq_index]->ldpc_dec.hard_output = *hard_outputs[0];
+
+    rte_pktmbuf_free(m_head);
+    rte_pktmbuf_free(m_head_out);
+
+
+    enq += rte_bbdev_enqueue_ldpc_dec_ops(0, 0, &ref_dec_op[enq], 1);
+
+
+    size_t end_else = GetTime::WorkerRdtsc();
+    size_t duration_else = end_else - start_tsc_else;
+
+    duration_stat_->task_duration_[0] += duration_else;
+    enq_index++;
+  }
+#endif
   return EventData(EventType::kDecode, tag);
 }
 

@@ -113,6 +113,9 @@ class DoDecode_ACC : public Doer {
   uint16_t burst_sz = 1;
   size_t q_m;
   size_t e;
+  uint16_t enq = 0;
+  uint16_t deq = 0;
+  size_t enq_index = 0;
   // const size_t num_ul_syms = cfg_->Frame().NumULSyms();
 
   struct rte_mempool* ops_mp;

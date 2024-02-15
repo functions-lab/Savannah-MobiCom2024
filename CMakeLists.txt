@@ -120,7 +120,10 @@ set(TIME_EXCLUSIVE False CACHE BOOL "TIME_EXCLUSIVE defaulting to 'False'")
 message(STATUS "TIME_EXCLUSIVE:   ${TIME_EXCLUSIVE}")
 
 set(LDPC_TYPE FlexRAN CACHE STRING "LDPC_TYPE defaulting to 'FlexRAN', valid types are FlexRAN / ACC100")
-message(STATUS "LDPC Mode:        ${LDPC_TYPE}")
+message(STATUS "LDPC_TYPE:        ${LDPC_TYPE}")
+set(LDPC_ENQ_BULK False CACHE BOOL "LDPC_ENQ_BULK defaulting to 'False'")
+message(STATUS "LDPC_ENQ_BULK:    ${LDPC_ENQ_BULK}")
+
 message(STATUS "--------------------------------\n--")
 
 if(RADIO_TYPE STREQUAL SOAPY_IRIS)
@@ -144,6 +147,13 @@ if(LDPC_TYPE STREQUAL ACC100)
   add_definitions(-DUSE_ACC100)
 else()
   message(STATUS "Enabled SW Intel FlexRAN LDPC Decoding")
+endif()
+
+if(${LDPC_ENQ_BULK})
+  message(STATUS "LDPC: Bulk Enqueue Mode")
+  add_definitions(-DENQUEUE_BULK)
+else()
+  message(STATUS "LDPC: Sequential Enqueue Mode")
 endif()
 
 #External Libraries / Depends
