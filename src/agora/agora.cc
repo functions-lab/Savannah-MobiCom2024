@@ -75,12 +75,6 @@ Agora::Agora(Config* const cfg)
   InitializeCounters();
   InitializeThreads();
 
-  // Create workers
-  ///\todo convert unique ptr to shared
-  worker_ = std::make_unique<AgoraWorker>(
-      config_, mac_sched_.get(), stats_.get(), phy_stats_.get(), message_.get(),
-      agora_memory_.get(), &frame_tracking_);
-
   if (kRecordUplinkFrame) {
     recorder_ = std::make_unique<Agora_recorder::RecorderThread>(
         config_, 0,
@@ -182,7 +176,12 @@ void Agora::ScheduleAntennas(EventType event_type, size_t frame_id,
       event.tags_[j] = base_tag.tag_;
       base_tag.ant_id_++;
     }
+#ifdef SINGLE_THREAD
     message_->GetTaskQueue(event_type, qid)->push(event);
+#else
+    TryEnqueueFallback(message_->GetTaskQueue(event_type, qid),
+                       message_->GetPtok(event_type, qid), event);
+#endif
   }
 }
 
@@ -251,7 +250,13 @@ void Agora::ScheduleSubcarriers(EventType event_type, size_t frame_id,
 
   const size_t qid = (frame_id & 0x1);
   for (size_t i = 0; i < num_events; i++) {
+#ifdef SINGLE_THREAD
     message_->GetTaskQueue(event_type, qid)->push(EventData(event_type, base_tag.tag_));
+#else
+    TryEnqueueFallback(message_->GetTaskQueue(event_type, qid),
+                       message_->GetPtok(event_type, qid),
+                       EventData(event_type, base_tag.tag_));
+#endif
     base_tag.sc_id_ += block_size;
   }
 }
@@ -278,7 +283,12 @@ void Agora::ScheduleCodeblocks(EventType event_type, Direction dir,
       event.tags_[j] = base_tag.tag_;
       base_tag.cb_id_++;
     }
+#ifdef SINGLE_THREAD
     message_->GetTaskQueue(event_type, qid)->push(event);
+#else
+    TryEnqueueFallback(message_->GetTaskQueue(event_type, qid),
+                       message_->GetPtok(event_type, qid), event);
+#endif
   }
 }
 
@@ -298,7 +308,13 @@ void Agora::ScheduleUsers(EventType event_type, size_t frame_id,
 void Agora::ScheduleBroadCastSymbols(EventType event_type, size_t frame_id) {
   auto base_tag = gen_tag_t::FrmSym(frame_id, 0u);
   const size_t qid = (frame_id & 0x1);
+#ifdef SINGLE_THREAD
   message_->GetTaskQueue(event_type, qid)->push(EventData(event_type, base_tag.tag_));
+#else
+  TryEnqueueFallback(message_->GetTaskQueue(event_type, qid),
+                     message_->GetPtok(event_type, qid),
+                     EventData(event_type, base_tag.tag_));
+#endif
 }
 
 void Agora::TryScheduleFft() {
@@ -334,7 +350,13 @@ void Agora::TryScheduleFft() {
           }
         }
       }
+#ifdef SINGLE_THREAD
       message_->GetTaskQueue(EventType::kFFT, qid)->push(do_fft_task);
+#else
+      TryEnqueueFallback(message_->GetTaskQueue(EventType::kFFT, qid),
+                         message_->GetPtok(EventType::kFFT, qid),
+                         do_fft_task);
+#endif
     }
   }
 }
@@ -376,6 +398,7 @@ size_t Agora::FetchStreamerEvent(std::vector<EventData>& events_list) {
 size_t Agora::FetchDoerEvent(std::vector<EventData>& events_list) {
   size_t total_events = 0;
   size_t max_events = events_list.size();
+#ifdef SINGLE_THREAD
   std::queue<EventData> *comp_queue = &message_->GetCompQueue(
     frame_tracking_.cur_proc_frame_id_ & 0x1);
   while (!comp_queue->empty() && total_events < max_events) {
@@ -386,6 +409,11 @@ size_t Agora::FetchDoerEvent(std::vector<EventData>& events_list) {
   // if (total_events == max_events) {
   //   printf("Note: use up max space of complete queue\n");
   // }
+#else
+  total_events =
+      message_->GetCompQueue(frame_tracking_.cur_proc_frame_id_ & 0x1)
+          .try_dequeue_bulk(&events_list.at(total_events), max_events);
+#endif
   return total_events;
 }
 
@@ -435,7 +463,9 @@ void Agora::Start() {
       // duration_stat_->task_count_++;
       // duration_stat_->task_duration_[2] += GetTime::WorkerRdtsc() - tsc0;
 
+#ifdef SINGLE_THREAD
       worker_->RunWorker();
+#endif
     } /* End of for */
 
     // duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc;
@@ -1175,10 +1205,26 @@ void Agora::InitializeThreads() {
         std::thread(&MacThreadBaseStation::RunEventLoop, mac_thread_.get());
   }
 
+  // Create workers
+  ///\todo convert unique ptr to shared
+  worker_ = std::make_unique<AgoraWorker>(
+      config_, mac_sched_.get(), stats_.get(), phy_stats_.get(), message_.get(),
+      agora_memory_.get(), &frame_tracking_);
+
+#ifdef SINGLE_THREAD
   AGORA_LOG_INFO(
       "Master/worker thread core %zu, TX/RX thread cores %zu--%zu\n",
       config_->CoreOffset(), config_->CoreOffset() + 1,
       config_->CoreOffset() + 1 + config_->SocketThreadNum() - 1);
+#else
+  AGORA_LOG_INFO(
+      "Master thread core %zu, TX/RX thread cores %zu--%zu, worker thread "
+      "cores %zu--%zu\n",
+      config_->CoreOffset(), config_->CoreOffset() + 1,
+      config_->CoreOffset() + 1 + config_->SocketThreadNum() - 1,
+      base_worker_core_offset_,
+      base_worker_core_offset_ + config_->WorkerThreadNum() - 1);
+#endif
 }
 
 void Agora::SaveDecodeDataToFile(int frame_id) {

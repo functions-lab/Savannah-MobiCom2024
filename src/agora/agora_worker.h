@@ -26,10 +26,26 @@ class AgoraWorker {
                        AgoraBuffer* buffer, FrameInfo* frame);
   ~AgoraWorker();
 
+#ifdef SINGLE_THREAD
   void RunWorker();
+#endif
 
  private:
+
+#ifdef SINGLE_THREAD
   void InitializeWorker();
+
+  std::vector<std::shared_ptr<Doer> > computers_vec;
+  std::vector<EventType> events_vec;
+  int tid; // TODO: remove thread id for single-core
+  size_t cur_qid;
+  size_t empty_queue_itrs;
+  bool empty_queue;
+#else
+  void WorkerThread(int tid);
+  void CreateThreads();
+  void JoinThreads();
+#endif
 
   const size_t base_worker_core_offset_;
 
@@ -42,13 +58,6 @@ class AgoraWorker {
   MessageInfo* message_;
   AgoraBuffer* buffer_;
   FrameInfo* frame_;
-
-  std::vector<std::shared_ptr<Doer> > computers_vec;
-  std::vector<EventType> events_vec;
-  int tid; // TODO: remove thread id for single-core
-  size_t cur_qid;
-  size_t empty_queue_itrs;
-  bool empty_queue;
 };
 
 #endif  // AGORA_WORKER_H_
