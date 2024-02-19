@@ -86,15 +86,6 @@ DoDemul::DoDemul(
   }
   mkl_jit_cgemm_ = mkl_jit_get_cgemm_ptr(jitter_);
 #endif
-
-  // // Init LUT for sin/cos
-  // sin_lut.set_size(lut_size);
-  // cos_lut.set_size(lut_size);
-  // for (int i = 0; i < lut_size; ++i) {
-  //   double angle = i * lut_step;
-  //   sin_lut(i) = std::sin(angle);
-  //   cos_lut(i) = std::cos(angle);
-  // }
 }
 
 DoDemul::~DoDemul() {
@@ -236,13 +227,12 @@ EventData DoDemul::Launch(size_t tag) {
         float cur_theta_f = theta_vec(0) + (symbol_idx_ul * theta_inc_f);
         vec_equaled *= arma::cx_float(cos(-cur_theta_f), sin(-cur_theta_f));
       }
-
+  
       // Not update EVM for the special, time-exclusive case
-
-      duration_stat_equal_->task_count_++;
-      duration_stat_equal_->task_duration_[3] +=
-          GetTime::WorkerRdtsc() - start_equal_tsc2;
     }
+    duration_stat_equal_->task_count_++;
+    duration_stat_equal_->task_duration_[3] +=
+        GetTime::WorkerRdtsc() - start_equal_tsc2;
   } else if (cfg_->UeAntNum() == 2 && cfg_->BsAntNum() == 2) {
     // Accelerate (vectorized computation) 2x2 antenna config
     size_t start_equal_tsc0 = GetTime::WorkerRdtsc();
@@ -482,10 +472,6 @@ EventData DoDemul::Launch(size_t tag) {
         // vec_equaled *= arma::cx_float(cos(-cur_theta_f), sin(-cur_theta_f));
 #endif
       }
-
-      duration_stat_equal_->task_count_++;
-      duration_stat_equal_->task_duration_[3] +=
-          GetTime::WorkerRdtsc() - start_equal_tsc2;
     }
 
 #if defined(__AVX512F__) && defined(AVX512_MATOP)
@@ -493,6 +479,9 @@ EventData DoDemul::Launch(size_t tag) {
     cub_equaled.tube(0, 0) = vec_equal_0;
     cub_equaled.tube(1, 0) = vec_equal_1;
 #endif
+    duration_stat_equal_->task_count_++;
+    duration_stat_equal_->task_duration_[3] +=
+        GetTime::WorkerRdtsc() - start_equal_tsc2;
 
   } else if (cfg_->UeAntNum() == 4 && cfg_->BsAntNum() == 4) {
     // Accelerate (vectorized computation) 4x4 antenna config
@@ -831,10 +820,6 @@ EventData DoDemul::Launch(size_t tag) {
         cub_equaled.each_slice() %= mat_phase_correct;
 #endif
       }
-
-      duration_stat_equal_->task_count_++;
-      duration_stat_equal_->task_duration_[3] +=
-          GetTime::WorkerRdtsc() - start_equal_tsc2;
     }
 
 #if defined(__AVX512F__) && defined(AVX512_MATOP)
@@ -844,6 +829,10 @@ EventData DoDemul::Launch(size_t tag) {
     cub_equaled.tube(2, 0) = vec_equal_2;
     cub_equaled.tube(3, 0) = vec_equal_3;
 #endif
+
+    duration_stat_equal_->task_count_++;
+    duration_stat_equal_->task_duration_[3] +=
+        GetTime::WorkerRdtsc() - start_equal_tsc2;
   }
   } else {
     // Iterate through cache lines
