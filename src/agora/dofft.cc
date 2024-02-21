@@ -314,7 +314,11 @@ void DoFFT::FillOutputBuffer(complex_float* out_buf, size_t ant_id,
     if ((cfg_->BsAntNum() == 2 && cfg_->UeAntNum() == 2) ||
         (cfg_->BsAntNum() == 4 && cfg_->UeAntNum() == 4)) {
       if (symbol_type == SymbolType::kPilot || symbol_type == SymbolType::kUL) {
+#if defined(ARMA_CUBE_MATOP)
+        partial_transpose = kUsePartialTrans;
+#else //  defined(AVX512_MATOP) || defined(ARMA_VEC_MATOP) || not defined
         partial_transpose = false;
+#endif
       }
     }
   }
