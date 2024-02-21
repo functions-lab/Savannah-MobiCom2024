@@ -595,72 +595,68 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
     vec_ul_beam.subvec(3 * sc_vec_len, 4 * sc_vec_len - 1) = vec_csi_a % vec_det;
 
 #elif defined(ARMA_CUBE_MATOP)
-    // // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
-    // // Handle each subcarrier in the block (base_sc_id : last_sc_id -1)
-    // for (size_t cur_sc_id = start_sc; cur_sc_id < last_sc_id;
-    //      cur_sc_id = cur_sc_id + sc_inc) {
-    //   // Gather CSI matrices of each pilot from partially-transposed CSIs.
-    //   arma::uvec ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
-    //   for (size_t selected_ue_idx = 0;
-    //       selected_ue_idx < cfg_->SpatialStreamsNum(); selected_ue_idx++) {
-    //     size_t ue_idx = ue_list.at(selected_ue_idx);
-    //     auto* dst_csi_ptr = reinterpret_cast<float*>(
-    //         csi_gather_buffer_ + cfg_->BsAntNum() * selected_ue_idx);
-    //     if (kUsePartialTrans) {
-    //       PartialTransposeGather(
-    //           cur_sc_id,
-    //           reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
-    //           dst_csi_ptr, cfg_->BsAntNum());
-    //     } else {
-    //       TransposeGather(
-    //           cur_sc_id,
-    //           reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
-    //           dst_csi_ptr, cfg_->BsAntNum(), cfg_->OfdmDataNum());
-    //     }
-    //   }
-    //   arma::cx_fmat mat_csi_temp((arma::cx_float*)csi_gather_buffer_,
-    //                              cfg_->BsAntNum(),
-    //                              cfg_->SpatialStreamsNum(), false);
-    //   cub_csi.slice(cur_sc_id) = mat_csi_temp;
-    // }
+    arma::cx_fcube cub_csi(cfg_->BsAntNum(), cfg_->SpatialStreamsNum(),
+                           sc_vec_len);
+    // Default: Handle each subcarrier one by one
+    // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
+    // Handle each subcarrier in the block (base_sc_id : last_sc_id -1)
+    for (size_t cur_sc_id = base_sc_id; cur_sc_id < last_sc_id; cur_sc_id++) {
+      // Gather CSI matrices of each pilot from partially-transposed CSIs.
+      arma::uvec ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
+      for (size_t selected_ue_idx = 0;
+          selected_ue_idx < cfg_->SpatialStreamsNum(); selected_ue_idx++) {
+        size_t ue_idx = ue_list.at(selected_ue_idx);
+        auto* dst_csi_ptr = reinterpret_cast<float*>(
+            csi_gather_buffer_ + cfg_->BsAntNum() * selected_ue_idx);
+        if (kUsePartialTrans) {
+          PartialTransposeGather(
+              cur_sc_id,
+              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+              dst_csi_ptr, cfg_->BsAntNum());
+        } else {
+          TransposeGather(
+              cur_sc_id,
+              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+              dst_csi_ptr, cfg_->BsAntNum(), cfg_->OfdmDataNum());
+        }
+      }
+      arma::cx_fmat mat_csi_temp((arma::cx_float*)csi_gather_buffer_,
+                                 cfg_->BsAntNum(),
+                                 cfg_->SpatialStreamsNum(), false);
+      cub_csi.slice(cur_sc_id) = mat_csi_temp;
+    }
 
-    // // Prepare UL beam matrix. Let Armadillo help handle the memory.
-    // // The format here is identical to the input of equalizer. Note 
-    // // that the memory layout for Armadillo (cube) & AVX512 impl are different.
-    // arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
-    //   ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
-    // arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
-    //                            cfg_->BsAntNum(), sc_vec_len, false);
+    // Prepare UL beam matrix. Let Armadillo help handle the memory.
+    // The format here is identical to the input of equalizer. Note 
+    // that the memory layout for Armadillo (cube) & AVX512 impl are different.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
+                               cfg_->BsAntNum(), sc_vec_len, false);
 
-    // const size_t start_tsc2 = GetTime::WorkerRdtsc();
-    // duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
 
-    // // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
-    // //     [ c d ]      [c' d']   [-c  a]
-    // arma::cx_fcube cub_csi(cfg_->BsAntNum(), cfg_->SpatialStreamsNum(),
-    //                        sc_vec_len);
-    // cub_csi.tube(0, 0) = vec_csi_a;
-    // cub_csi.tube(0, 1) = vec_csi_b;
-    // cub_csi.tube(1, 0) = vec_csi_c;
-    // cub_csi.tube(1, 1) = vec_csi_d;
+    // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
+    //     [ c d ]      [c' d']   [-c  a]
 
-    // // det = a*d - b*c
-    // arma::cx_fcube cub_det = (cub_csi.tube(0, 0) % cub_csi.tube(1, 1)) -
-    //                          (cub_csi.tube(0, 1) % cub_csi.tube(1, 0));
+    // det = a*d - b*c
+    arma::cx_fcube cub_det = (cub_csi.tube(0, 0) % cub_csi.tube(1, 1)) -
+                             (cub_csi.tube(0, 1) % cub_csi.tube(1, 0));
 
-    // // check if the channel matrix is invertible,
-    // // float lowest > 1e-38, normal range > 1e-8
-    // if (unlikely(cub_det.is_zero(1e-10))) {
-    //   AGORA_LOG_WARN("Channel matrix seems not invertible\n");
-    // }
+    // check if the channel matrix is invertible,
+    // float lowest > 1e-38, normal range > 1e-8
+    if (unlikely(cub_det.is_zero(1e-10))) {
+      AGORA_LOG_WARN("Channel matrix seems not invertible\n");
+    }
 
-    // // use reciprocal for division since multiplication is faster
-    // cub_det = 1.0 / cub_det;
+    // use reciprocal for division since multiplication is faster
+    cub_det = 1.0 / cub_det;
 
-    // cub_ul_beam.tube(0, 0) =  cub_csi.tube(1, 1) % cub_det;
-    // cub_ul_beam.tube(0, 1) = -cub_csi.tube(0, 1) % cub_det;
-    // cub_ul_beam.tube(1, 0) = -cub_csi.tube(1, 0) % cub_det;
-    // cub_ul_beam.tube(1, 1) =  cub_csi.tube(0, 0) % cub_det;
+    cub_ul_beam.tube(0, 0) =  cub_csi.tube(1, 1) % cub_det;
+    cub_ul_beam.tube(0, 1) = -cub_csi.tube(0, 1) % cub_det;
+    cub_ul_beam.tube(1, 0) = -cub_csi.tube(1, 0) % cub_det;
+    cub_ul_beam.tube(1, 1) =  cub_csi.tube(0, 0) % cub_det;
 #else
     // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
     auto* cx_src =
