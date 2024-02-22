@@ -451,14 +451,13 @@ EventData DoDemul::Launch(size_t tag) {
         arma::cx_fmat mat_ue_pilot_data_ =
           ue_pilot_data_.cols(base_sc_id, base_sc_id+max_sc_ite-1);
         // if use fvec or fcolvec, then transpose mat_ue_pilot_data_ by
-        // mat_ue_pilot_data_.row(0).st()
+        // mat_ue_pilot_data_.row(i).st(). otherwise, (when use frowvec)
+        // use mat_ue_pilot_data_.row(i)
 
-        mat_phase_shift.col(0).row(0) += arma::sum(
-          vec_equal_0 % arma::conj(mat_ue_pilot_data_.row(0).st())
-        );
-        mat_phase_shift.col(0).row(1) += arma::sum(
-          vec_equal_1 % arma::conj(mat_ue_pilot_data_.row(1).st())
-        );
+        mat_phase_shift.col(0).row(0) +=
+            arma::sum(vec_equal_0 % arma::conj(mat_ue_pilot_data_.row(0).st()));
+        mat_phase_shift.col(0).row(1) +=
+            arma::sum(vec_equal_1 % arma::conj(mat_ue_pilot_data_.row(1).st()));
 #elif defined(ARMA_CUBE_MATOP)
         arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
           &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
@@ -706,6 +705,64 @@ EventData DoDemul::Launch(size_t tag) {
       __m512 c_4 = _mm512_add_ps(temp_1, temp_3);
       _mm512_storeu_ps(ptr_c_4+sc_idx, c_4);
     }
+#elif defined(ARMA_VEC_MATOP)
+   // Step 0: Re-arrange data
+    arma::cx_float* data_ptr = (arma::cx_float*)data_buf;
+    arma::cx_fvec vec_data_0(data_ptr, max_sc_ite, false);
+    arma::cx_fvec vec_data_1(data_ptr+max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_data_2(data_ptr+2*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_data_3(data_ptr+3*max_sc_ite, max_sc_ite, false);
+
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+        ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fvec vec_ul_beam_0_0(ul_beam_ptr, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_0_1(ul_beam_ptr+max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_0_2(ul_beam_ptr+2*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_0_3(ul_beam_ptr+3*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_1_0(ul_beam_ptr+4*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_1_1(ul_beam_ptr+5*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_1_2(ul_beam_ptr+6*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_1_3(ul_beam_ptr+7*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_2_0(ul_beam_ptr+8*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_2_1(ul_beam_ptr+9*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_2_2(ul_beam_ptr+10*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_2_3(ul_beam_ptr+11*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_3_0(ul_beam_ptr+12*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_3_1(ul_beam_ptr+13*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_3_2(ul_beam_ptr+14*max_sc_ite, max_sc_ite, false);
+    arma::cx_fvec vec_ul_beam_3_3(ul_beam_ptr+15*max_sc_ite, max_sc_ite, false);
+
+    size_t start_equal_tsc1 = GetTime::WorkerRdtsc();
+    duration_stat_equal_->task_duration_[1] +=
+        start_equal_tsc1 - start_equal_tsc0;
+
+    // Step 1: Equalization
+    arma::cx_fvec vec_equal_0 = vec_ul_beam_0_0 % vec_data_0 +
+                                vec_ul_beam_0_1 % vec_data_1 +
+                                vec_ul_beam_0_2 % vec_data_2 +
+                                vec_ul_beam_0_3 % vec_data_3;
+    arma::cx_fvec vec_equal_1 = vec_ul_beam_1_0 % vec_data_0 +
+                                vec_ul_beam_1_1 % vec_data_1 +
+                                vec_ul_beam_1_2 % vec_data_2 +
+                                vec_ul_beam_1_3 % vec_data_3;
+    arma::cx_fvec vec_equal_2 = vec_ul_beam_2_0 % vec_data_0 +
+                                vec_ul_beam_2_1 % vec_data_1 +
+                                vec_ul_beam_2_2 % vec_data_2 +
+                                vec_ul_beam_2_3 % vec_data_3;
+    arma::cx_fvec vec_equal_3 = vec_ul_beam_3_0 % vec_data_0 +
+                                vec_ul_beam_3_1 % vec_data_1 +
+                                vec_ul_beam_3_2 % vec_data_2 +
+                                vec_ul_beam_3_3 % vec_data_3;
+    
+    complex_float* ptr_equal_0 =
+      reinterpret_cast<complex_float*>(vec_equal_0.memptr());
+    complex_float* ptr_equal_1 =
+      reinterpret_cast<complex_float*>(vec_equal_1.memptr());
+    complex_float* ptr_equal_2 =
+      reinterpret_cast<complex_float*>(vec_equal_2.memptr());
+    complex_float* ptr_equal_3 =
+      reinterpret_cast<complex_float*>(vec_equal_3.memptr());
+    // delay storing to cub_equaled to avoid frequent avx512-armadillo conversion
 #else
     // Step 0: Re-arrange data
     arma::cx_float* data_ptr = (arma::cx_float*)data_buf;
@@ -829,6 +886,27 @@ EventData DoDemul::Launch(size_t tag) {
         *(phase_shift_ptr+1) += CommsLib::M512ComplexCf32Sum(sum_1);
         *(phase_shift_ptr+2) += CommsLib::M512ComplexCf32Sum(sum_2);
         *(phase_shift_ptr+3) += CommsLib::M512ComplexCf32Sum(sum_3);
+#elif defined(ARMA_VEC_MATOP)
+        arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
+          &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
+                                [symbol_idx_ul * cfg_->UeAntNum()]);
+        arma::cx_fmat mat_phase_shift(phase_shift_ptr, cfg_->UeAntNum(), 1,
+                                  false);
+
+        arma::cx_fmat mat_ue_pilot_data_ =
+          ue_pilot_data_.cols(base_sc_id, base_sc_id+max_sc_ite-1);
+        // if use fvec or fcolvec, then transpose mat_ue_pilot_data_ by
+        // mat_ue_pilot_data_.row(i).st(). otherwise, (when use frowvec)
+        // use mat_ue_pilot_data_.row(i)
+
+        mat_phase_shift.col(0).row(0) +=
+            arma::sum(vec_equal_0 % arma::conj(mat_ue_pilot_data_.row(0).st()));
+        mat_phase_shift.col(0).row(1) +=
+            arma::sum(vec_equal_1 % arma::conj(mat_ue_pilot_data_.row(1).st()));
+        mat_phase_shift.col(0).row(2) +=
+            arma::sum(vec_equal_2 % arma::conj(mat_ue_pilot_data_.row(2).st()));
+        mat_phase_shift.col(0).row(3) += 
+            arma::sum(vec_equal_3 % arma::conj(mat_ue_pilot_data_.row(3).st()));
 #else
         arma::cx_float* phase_shift_ptr = reinterpret_cast<arma::cx_float*>(
           &ue_spec_pilot_buffer_[frame_id % kFrameWnd]
@@ -915,13 +993,18 @@ EventData DoDemul::Launch(size_t tag) {
           _mm512_storeu_ps(ptr_equal_2+i, eq_2);
           _mm512_storeu_ps(ptr_equal_3+i, eq_3);
         }
+#elif defined(ARMA_VEC_MATOP)
+        vec_equal_0 *= mat_phase_correct(0, 0);
+        vec_equal_1 *= mat_phase_correct(1, 0);
+        vec_equal_2 *= mat_phase_correct(2, 0);
+        vec_equal_3 *= mat_phase_correct(3, 0);
 #else
         cub_equaled.each_slice() %= mat_phase_correct;
 #endif
       }
     }
 
-#if defined(__AVX512F__) && defined(AVX512_MATOP)
+#if defined(__AVX512F__) && (defined(AVX512_MATOP) || defined(ARMA_VEC_MATOP))
     // store back to Armadillo matrix
     cub_equaled.tube(0, 0) = vec_equal_0;
     cub_equaled.tube(1, 0) = vec_equal_1;
