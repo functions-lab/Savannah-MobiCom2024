@@ -546,6 +546,118 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       _mm512_storeu_ps(ul_beam_c + i, c);
       _mm512_storeu_ps(ul_beam_d + i, a);
     }
+#elif defined(ARMA_VEC_MATOP)
+    // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
+    auto* cx_src =
+      reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][0]);
+    arma::cx_fvec vec_csi_a = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_c = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][1]);
+    arma::cx_fvec vec_csi_b = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_d = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    // Prepare UL beam matrix. Let Armadillo help handle the memory.
+    // The format here is identical to the input of equalizer.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    // The following vector view uses the same format as AVX512 memory layout.
+    arma::cx_fvec vec_ul_beam(
+        (arma::cx_float*)ul_beam_ptr,
+        sc_vec_len * cfg_->SpatialStreamsNum() * cfg_->BsAntNum(),
+        false);
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
+    // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
+    //     [ c d ]      [c' d']   [-c  a]
+
+    // det = a*d - b*c
+    arma::cx_fvec vec_det = (vec_csi_a % vec_csi_d) - (vec_csi_b % vec_csi_c);
+
+    // check if the channel matrix is invertible,
+    // float lowest > 1e-38, normal range > 1e-8
+    if (unlikely(vec_det.is_zero(1e-10))) {
+      AGORA_LOG_WARN("Channel matrix seems not invertible\n");
+    }
+
+    // use reciprocal for division since multiplication is faster
+    vec_det = 1.0 / vec_det;
+
+    size_t shift = sc_vec_len;
+    vec_ul_beam.subvec(0, shift - 1) = vec_csi_d % vec_det;
+    vec_ul_beam.subvec(shift, 2 * shift - 1) = -vec_csi_b % vec_det;
+    vec_ul_beam.subvec(2 * shift, 3 * shift - 1) = -vec_csi_c % vec_det;
+    vec_ul_beam.subvec(3 * shift, 4 * shift - 1) = vec_csi_a % vec_det;
+
+#elif defined(ARMA_CUBE_MATOP)
+    arma::cx_fcube cub_csi(cfg_->BsAntNum(), cfg_->SpatialStreamsNum(),
+                           sc_vec_len);
+    // Default: Handle each subcarrier one by one
+    // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
+    // Handle each subcarrier in the block (base_sc_id : last_sc_id -1)
+    for (size_t cur_sc_id = base_sc_id; cur_sc_id < last_sc_id; cur_sc_id++) {
+      // Gather CSI matrices of each pilot from partially-transposed CSIs.
+      arma::uvec ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
+      for (size_t selected_ue_idx = 0;
+          selected_ue_idx < cfg_->SpatialStreamsNum(); selected_ue_idx++) {
+        size_t ue_idx = ue_list.at(selected_ue_idx);
+        auto* dst_csi_ptr = reinterpret_cast<float*>(
+            csi_gather_buffer_ + cfg_->BsAntNum() * selected_ue_idx);
+        if (kUsePartialTrans) {
+          PartialTransposeGather(
+              cur_sc_id,
+              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+              dst_csi_ptr, cfg_->BsAntNum());
+        } else {
+          TransposeGather(
+              cur_sc_id,
+              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+              dst_csi_ptr, cfg_->BsAntNum(), cfg_->OfdmDataNum());
+        }
+      }
+      arma::cx_fmat mat_csi_temp((arma::cx_float*)csi_gather_buffer_,
+                                 cfg_->BsAntNum(),
+                                 cfg_->SpatialStreamsNum(), false);
+      cub_csi.slice(cur_sc_id) = mat_csi_temp;
+    }
+
+    // Prepare UL beam matrix. Let Armadillo help handle the memory.
+    // The format here is identical to the input of equalizer. Note 
+    // that the memory layout for Armadillo (cube) & AVX512 impl are different.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
+                               cfg_->BsAntNum(), sc_vec_len, false);
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
+    // A = [ a b ], B = [a' b'] = [d  -b] / (a*d - b*c) = A^(-1)
+    //     [ c d ]      [c' d']   [-c  a]
+
+    // det = a*d - b*c
+    arma::cx_fcube cub_det = (cub_csi.tube(0, 0) % cub_csi.tube(1, 1)) -
+                             (cub_csi.tube(0, 1) % cub_csi.tube(1, 0));
+
+    // check if the channel matrix is invertible,
+    // float lowest > 1e-38, normal range > 1e-8
+    if (unlikely(cub_det.is_zero(1e-10))) {
+      AGORA_LOG_WARN("Channel matrix seems not invertible\n");
+    }
+
+    // use reciprocal for division since multiplication is faster
+    cub_det = 1.0 / cub_det;
+
+    cub_ul_beam.tube(0, 0) =  cub_csi.tube(1, 1) % cub_det;
+    cub_ul_beam.tube(0, 1) = -cub_csi.tube(0, 1) % cub_det;
+    cub_ul_beam.tube(1, 0) = -cub_csi.tube(1, 0) % cub_det;
+    cub_ul_beam.tube(1, 1) =  cub_csi.tube(0, 0) % cub_det;
 #else
     // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
     auto* cx_src =
@@ -953,8 +1065,389 @@ void DoBeamWeights::ComputeBeams(size_t tag) {
       _mm512_storeu_ps(ul_beam_3_2 + i, adj_3_2);
       _mm512_storeu_ps(ul_beam_3_3 + i, adj_3_3);
     }
-#else
+#elif defined(ARMA_VEC_MATOP)
+    // Prepare CSI matrix. Read in vectors.
+    auto* cx_src =
+      reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][0]);
+    arma::cx_fvec vec_csi_0_0 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_1_0 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_2_0 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 2 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_3_0 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 3 * cfg_->OfdmDataNum()), sc_vec_len, false);
 
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][1]);
+    arma::cx_fvec vec_csi_0_1 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_1_1 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_2_1 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 2 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_3_1 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 3 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][2]);
+    arma::cx_fvec vec_csi_0_2 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_1_2 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_2_2 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 2 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_3_2 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 3 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    cx_src = reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][3]);
+    arma::cx_fvec vec_csi_0_3 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 0 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_1_3 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 1 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_2_3 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 2 * cfg_->OfdmDataNum()), sc_vec_len, false);
+    arma::cx_fvec vec_csi_3_3 = arma::cx_fvec(
+      (arma::cx_float*)(cx_src + 3 * cfg_->OfdmDataNum()), sc_vec_len, false);
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
+    // Calculate the determinant
+    arma::cx_fvec vec_det =
+      vec_csi_0_0 %
+       (vec_csi_1_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+        vec_csi_1_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+        vec_csi_1_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1)) -
+      vec_csi_1_0 %
+       (vec_csi_0_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+        vec_csi_0_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+        vec_csi_0_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1)) +
+      vec_csi_2_0 %
+       (vec_csi_0_1 % (vec_csi_1_2 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_2) +
+        vec_csi_0_2 % (vec_csi_1_3 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_3) +
+        vec_csi_0_3 % (vec_csi_1_1 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_1)) -
+      vec_csi_3_0 %
+       (vec_csi_0_1 % (vec_csi_1_2 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_2) +
+        vec_csi_0_2 % (vec_csi_1_3 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_3) +
+        vec_csi_0_3 % (vec_csi_1_1 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_1));
+
+    if (unlikely(arma::any(arma::abs(vec_det) < 1e-10))) {
+      AGORA_LOG_WARN("Channel matrix seems not invertible\n");
+    }
+
+    // use reciprocal for division since multiplication is faster
+    vec_det = 1.0 / vec_det;
+
+    arma::cx_fvec vec_adj_0_0 =
+      vec_csi_1_1 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+      vec_csi_1_2 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+      vec_csi_1_3 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_0_1 =
+      vec_csi_0_1 % (vec_csi_2_3 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_3) +
+      vec_csi_0_2 % (vec_csi_2_1 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_1) +
+      vec_csi_0_3 % (vec_csi_2_2 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_0_2 =
+      vec_csi_0_1 % (vec_csi_1_2 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_1_3 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_1_1 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_0_3 =
+      vec_csi_0_1 % (vec_csi_1_3 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_3) +
+      vec_csi_0_2 % (vec_csi_1_1 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_1) +
+      vec_csi_0_3 % (vec_csi_1_2 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_2);
+
+    arma::cx_fvec vec_adj_1_0 =
+      vec_csi_1_0 % (vec_csi_2_3 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_3) +
+      vec_csi_1_2 % (vec_csi_2_0 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_0) +
+      vec_csi_1_3 % (vec_csi_2_2 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_1_1 =
+      vec_csi_0_0 % (vec_csi_2_2 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_2_3 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_2_0 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_1_2 =
+      vec_csi_0_0 % (vec_csi_1_3 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_3) +
+      vec_csi_0_2 % (vec_csi_1_0 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_0) +
+      vec_csi_0_3 % (vec_csi_1_2 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_2);
+    arma::cx_fvec vec_adj_1_3 =
+      vec_csi_0_0 % (vec_csi_1_2 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_2) +
+      vec_csi_0_2 % (vec_csi_1_3 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_3) +
+      vec_csi_0_3 % (vec_csi_1_0 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_0);
+
+    arma::cx_fvec vec_adj_2_0 =
+      vec_csi_1_0 % (vec_csi_2_1 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_1) +
+      vec_csi_1_1 % (vec_csi_2_3 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_3) +
+      vec_csi_1_3 % (vec_csi_2_0 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_2_1 =
+      vec_csi_0_0 % (vec_csi_2_3 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_3) +
+      vec_csi_0_1 % (vec_csi_2_0 % vec_csi_3_3 - vec_csi_2_3 % vec_csi_3_0) +
+      vec_csi_0_3 % (vec_csi_2_1 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_2_2 =
+      vec_csi_0_0 % (vec_csi_1_1 % vec_csi_3_3 - vec_csi_1_3 % vec_csi_3_1) +
+      vec_csi_0_1 % (vec_csi_1_3 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_3) +
+      vec_csi_0_3 % (vec_csi_1_0 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_2_3 =
+      vec_csi_0_0 % (vec_csi_1_3 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_3) +
+      vec_csi_0_1 % (vec_csi_1_0 % vec_csi_2_3 - vec_csi_1_3 % vec_csi_2_0) +
+      vec_csi_0_3 % (vec_csi_1_1 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_1);
+
+    arma::cx_fvec vec_adj_3_0 =
+      vec_csi_1_0 % (vec_csi_2_2 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_2) +
+      vec_csi_1_1 % (vec_csi_2_0 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_0) +
+      vec_csi_1_2 % (vec_csi_2_1 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_3_1 =
+      vec_csi_0_0 % (vec_csi_2_1 % vec_csi_3_2 - vec_csi_2_2 % vec_csi_3_1) +
+      vec_csi_0_1 % (vec_csi_2_2 % vec_csi_3_0 - vec_csi_2_0 % vec_csi_3_2) +
+      vec_csi_0_2 % (vec_csi_2_0 % vec_csi_3_1 - vec_csi_2_1 % vec_csi_3_0);
+    arma::cx_fvec vec_adj_3_2 =
+      vec_csi_0_0 % (vec_csi_1_2 % vec_csi_3_1 - vec_csi_1_1 % vec_csi_3_2) +
+      vec_csi_0_1 % (vec_csi_1_0 % vec_csi_3_2 - vec_csi_1_2 % vec_csi_3_0) +
+      vec_csi_0_2 % (vec_csi_1_1 % vec_csi_3_0 - vec_csi_1_0 % vec_csi_3_1);
+    arma::cx_fvec vec_adj_3_3 =
+      vec_csi_0_0 % (vec_csi_1_1 % vec_csi_2_2 - vec_csi_1_2 % vec_csi_2_1) +
+      vec_csi_0_1 % (vec_csi_1_2 % vec_csi_2_0 - vec_csi_1_0 % vec_csi_2_2) +
+      vec_csi_0_2 % (vec_csi_1_0 % vec_csi_2_1 - vec_csi_1_1 % vec_csi_2_0);
+
+    // Prepare UL beam matrix. Let Armadillo help handle the memory.
+    // The format here is identical to the input of equalizer.
+    // Note that the memory layout for Armadillo & AVX512 impl are different.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    // Use beam matrix layout align with the one used by AVX512 equalizer.
+    arma::cx_fvec vec_ul_beam(
+        (arma::cx_float*)ul_beam_ptr,
+        sc_vec_len * cfg_->SpatialStreamsNum() * cfg_->BsAntNum(),
+        false);
+    size_t shift = sc_vec_len;
+
+    vec_ul_beam.subvec(0, shift - 1) = vec_adj_0_0 % vec_det;
+    vec_ul_beam.subvec(shift, 2 * shift - 1) = vec_adj_0_1 % vec_det;
+    vec_ul_beam.subvec(2 * shift, 3 * shift - 1) = vec_adj_0_2 % vec_det;
+    vec_ul_beam.subvec(3 * shift, 4 * shift - 1) = vec_adj_0_3 % vec_det;
+    vec_ul_beam.subvec(4 * shift, 5 * shift - 1) = vec_adj_1_0 % vec_det;
+    vec_ul_beam.subvec(5 * shift, 6 * shift - 1) = vec_adj_1_1 % vec_det;
+    vec_ul_beam.subvec(6 * shift, 7 * shift - 1) = vec_adj_1_2 % vec_det;
+    vec_ul_beam.subvec(7 * shift, 8 * shift - 1) = vec_adj_1_3 % vec_det;
+    vec_ul_beam.subvec(8 * shift, 9 * shift - 1) = vec_adj_2_0 % vec_det;
+    vec_ul_beam.subvec(9 * shift, 10 * shift - 1) = vec_adj_2_1 % vec_det;
+    vec_ul_beam.subvec(10 * shift, 11 * shift - 1) = vec_adj_2_2 % vec_det;
+    vec_ul_beam.subvec(11 * shift, 12 * shift - 1) = vec_adj_2_3 % vec_det;
+    vec_ul_beam.subvec(12 * shift, 13 * shift - 1) = vec_adj_3_0 % vec_det;
+    vec_ul_beam.subvec(13 * shift, 14 * shift - 1) = vec_adj_3_1 % vec_det;
+    vec_ul_beam.subvec(14 * shift, 15 * shift - 1) = vec_adj_3_2 % vec_det;
+    vec_ul_beam.subvec(15 * shift, 16 * shift - 1) = vec_adj_3_3 % vec_det;
+#elif defined(ARMA_CUBE_MATOP)
+    arma::cx_fcube cub_csi(cfg_->BsAntNum(), cfg_->SpatialStreamsNum(),
+                           sc_vec_len);
+    // Default: Handle each subcarrier one by one
+    // Gather CSI = [csi_a, csi_b; csi_c, csi_d]
+    // Handle each subcarrier in the block (base_sc_id : last_sc_id -1)
+    for (size_t cur_sc_id = base_sc_id; cur_sc_id < last_sc_id; cur_sc_id++) {
+      // Gather CSI matrices of each pilot from partially-transposed CSIs.
+      arma::uvec ue_list = mac_sched_->ScheduledUeList(frame_id, cur_sc_id);
+      for (size_t selected_ue_idx = 0;
+          selected_ue_idx < cfg_->SpatialStreamsNum(); selected_ue_idx++) {
+        size_t ue_idx = ue_list.at(selected_ue_idx);
+        auto* dst_csi_ptr = reinterpret_cast<float*>(
+            csi_gather_buffer_ + cfg_->BsAntNum() * selected_ue_idx);
+        if (kUsePartialTrans) {
+          PartialTransposeGather(
+              cur_sc_id,
+              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+              dst_csi_ptr, cfg_->BsAntNum());
+        } else {
+          TransposeGather(
+              cur_sc_id,
+              reinterpret_cast<float*>(csi_buffers_[frame_slot][ue_idx]),
+              dst_csi_ptr, cfg_->BsAntNum(), cfg_->OfdmDataNum());
+        }
+      }
+      arma::cx_fmat mat_csi_temp((arma::cx_float*)csi_gather_buffer_,
+                                 cfg_->BsAntNum(),
+                                 cfg_->SpatialStreamsNum(), false);
+      cub_csi.slice(cur_sc_id) = mat_csi_temp;
+    }
+
+    // Prepare UL beam matrix. Let Armadillo help handle the memory.
+    // The format here is identical to the input of equalizer. Note 
+    // that the memory layout for Armadillo (cube) & AVX512 impl are different.
+    arma::cx_float* ul_beam_ptr = reinterpret_cast<arma::cx_float*>(
+      ul_beam_matrices_[frame_slot][cfg_->GetBeamScId(base_sc_id)]);
+    arma::cx_fcube cub_ul_beam(ul_beam_ptr, cfg_->SpatialStreamsNum(),
+                               cfg_->BsAntNum(), sc_vec_len, false);
+
+    const size_t start_tsc2 = GetTime::WorkerRdtsc();
+    duration_stat_->task_duration_[1] += start_tsc2 - start_tsc1;
+
+    // Calculate the determinant
+    arma::cx_fcube cub_det =
+      cub_csi.tube(0, 0) %
+         (cub_csi.tube(1, 1) % (cub_csi.tube(2, 2) % cub_csi.tube(3, 3) -
+                                cub_csi.tube(2, 3) % cub_csi.tube(3, 2)) +
+          cub_csi.tube(1, 2) % (cub_csi.tube(2, 3) % cub_csi.tube(3, 1) -
+                                cub_csi.tube(2, 1) % cub_csi.tube(3, 3)) +
+          cub_csi.tube(1, 3) % (cub_csi.tube(2, 1) % cub_csi.tube(3, 2) -
+                                cub_csi.tube(2, 2) % cub_csi.tube(3, 1))) -
+      cub_csi.tube(1, 0) %
+         (cub_csi.tube(0, 1) % (cub_csi.tube(2, 2) % cub_csi.tube(3, 3) -
+                                cub_csi.tube(2, 3) % cub_csi.tube(3, 2)) +
+          cub_csi.tube(0, 2) % (cub_csi.tube(2, 3) % cub_csi.tube(3, 1) -
+                                cub_csi.tube(2, 1) % cub_csi.tube(3, 3)) +
+          cub_csi.tube(0, 3) % (cub_csi.tube(2, 1) % cub_csi.tube(3, 2) -
+                                cub_csi.tube(2, 2) % cub_csi.tube(3, 1))) +
+      cub_csi.tube(2, 0) %
+         (cub_csi.tube(0, 1) % (cub_csi.tube(1, 2) % cub_csi.tube(3, 3) -
+                                cub_csi.tube(1, 3) % cub_csi.tube(3, 2)) +
+          cub_csi.tube(0, 2) % (cub_csi.tube(1, 3) % cub_csi.tube(3, 1) -
+                                cub_csi.tube(1, 1) % cub_csi.tube(3, 3)) +
+          cub_csi.tube(0, 3) % (cub_csi.tube(1, 1) % cub_csi.tube(3, 2) -
+                                cub_csi.tube(1, 2) % cub_csi.tube(3, 1))) -
+      cub_csi.tube(3, 0) %
+         (cub_csi.tube(0, 1) % (cub_csi.tube(1, 2) % cub_csi.tube(2, 3) -
+                                cub_csi.tube(1, 3) % cub_csi.tube(2, 2)) +
+          cub_csi.tube(0, 2) % (cub_csi.tube(1, 3) % cub_csi.tube(2, 1) -
+                                cub_csi.tube(1, 1) % cub_csi.tube(2, 3)) +
+          cub_csi.tube(0, 3) % (cub_csi.tube(1, 1) % cub_csi.tube(2, 2) -
+                                cub_csi.tube(1, 2) % cub_csi.tube(2, 1)));
+
+    // check if the channel matrix is invertible,
+    // float lowest > 1e-38, normal range > 1e-8
+    if (unlikely(cub_det.is_zero(1e-10))) {
+      AGORA_LOG_WARN("Channel matrix seems not invertible\n");
+    }
+
+    // use reciprocal for division since multiplication is faster
+    cub_det = 1.0 / cub_det;
+
+    // Calculate the adjoint matrix
+    cub_ul_beam.tube(0, 0) =
+      cub_csi.tube(1, 1) % (cub_csi.tube(2, 2) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(2, 3) % cub_csi.tube(3, 2)) +
+      cub_csi.tube(1, 2) % (cub_csi.tube(2, 3) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(2, 1) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(1, 3) % (cub_csi.tube(2, 1) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(2, 2) % cub_csi.tube(3, 1));
+    cub_ul_beam.tube(0, 1) =
+      cub_csi.tube(0, 1) % (cub_csi.tube(2, 3) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(2, 2) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(2, 1) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(2, 3) % cub_csi.tube(3, 1)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(2, 2) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(2, 1) % cub_csi.tube(3, 2));
+    cub_ul_beam.tube(0, 2) =
+      cub_csi.tube(0, 1) % (cub_csi.tube(1, 2) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(1, 3) % cub_csi.tube(3, 2)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(1, 3) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(1, 1) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(1, 1) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(1, 2) % cub_csi.tube(3, 1));
+    cub_ul_beam.tube(0, 3) =
+      cub_csi.tube(0, 1) % (cub_csi.tube(1, 3) % cub_csi.tube(2, 2) -
+                            cub_csi.tube(1, 2) % cub_csi.tube(2, 3)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(1, 1) % cub_csi.tube(2, 3) -
+                            cub_csi.tube(1, 3) % cub_csi.tube(2, 1)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(1, 2) % cub_csi.tube(2, 1) -
+                            cub_csi.tube(1, 1) % cub_csi.tube(2, 2));
+    cub_ul_beam.tube(1, 0) =
+      cub_csi.tube(1, 0) % (cub_csi.tube(2, 3) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(2, 2) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(1, 2) % (cub_csi.tube(2, 0) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(2, 3) % cub_csi.tube(3, 0)) +
+      cub_csi.tube(1, 3) % (cub_csi.tube(2, 2) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(2, 0) % cub_csi.tube(3, 2));
+    cub_ul_beam.tube(1, 1) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(2, 2) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(2, 3) % cub_csi.tube(3, 2)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(2, 3) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(2, 0) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(2, 0) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(2, 2) % cub_csi.tube(3, 0));
+    cub_ul_beam.tube(1, 2) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(1, 3) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(1, 2) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(1, 0) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(1, 3) % cub_csi.tube(3, 0)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(1, 2) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(1, 0) % cub_csi.tube(3, 2));
+    cub_ul_beam.tube(1, 3) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(1, 2) % cub_csi.tube(2, 3) -
+                            cub_csi.tube(1, 3) % cub_csi.tube(2, 2)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(1, 3) % cub_csi.tube(2, 0) -
+                            cub_csi.tube(1, 0) % cub_csi.tube(2, 3)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(1, 0) % cub_csi.tube(2, 2) -
+                            cub_csi.tube(1, 2) % cub_csi.tube(2, 0));
+    cub_ul_beam.tube(2, 0) =
+      cub_csi.tube(1, 0) % (cub_csi.tube(2, 1) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(2, 3) % cub_csi.tube(3, 1)) +
+      cub_csi.tube(1, 1) % (cub_csi.tube(2, 3) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(2, 0) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(1, 3) % (cub_csi.tube(2, 0) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(2, 1) % cub_csi.tube(3, 0));
+    cub_ul_beam.tube(2, 1) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(2, 3) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(2, 1) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(0, 1) % (cub_csi.tube(2, 0) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(2, 3) % cub_csi.tube(3, 0)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(2, 1) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(2, 0) % cub_csi.tube(3, 1));
+    cub_ul_beam.tube(2, 2) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(1, 1) % cub_csi.tube(3, 3) -
+                            cub_csi.tube(1, 3) % cub_csi.tube(3, 1)) +
+      cub_csi.tube(0, 1) % (cub_csi.tube(1, 3) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(1, 0) % cub_csi.tube(3, 3)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(1, 0) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(1, 1) % cub_csi.tube(3, 0));
+    cub_ul_beam.tube(2, 3) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(1, 3) % cub_csi.tube(2, 1) -
+                            cub_csi.tube(1, 1) % cub_csi.tube(2, 3)) +
+      cub_csi.tube(0, 1) % (cub_csi.tube(1, 0) % cub_csi.tube(2, 3) -
+                            cub_csi.tube(1, 3) % cub_csi.tube(2, 0)) +
+      cub_csi.tube(0, 3) % (cub_csi.tube(1, 1) % cub_csi.tube(2, 0) -
+                            cub_csi.tube(1, 0) % cub_csi.tube(2, 1));
+    cub_ul_beam.tube(3, 0) =
+      cub_csi.tube(1, 0) % (cub_csi.tube(2, 2) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(2, 1) % cub_csi.tube(3, 2)) +
+      cub_csi.tube(1, 1) % (cub_csi.tube(2, 0) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(2, 2) % cub_csi.tube(3, 0)) +
+      cub_csi.tube(1, 2) % (cub_csi.tube(2, 1) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(2, 0) % cub_csi.tube(3, 1));
+    cub_ul_beam.tube(3, 1) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(2, 1) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(2, 2) % cub_csi.tube(3, 1)) +
+      cub_csi.tube(0, 1) % (cub_csi.tube(2, 2) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(2, 0) % cub_csi.tube(3, 2)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(2, 0) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(2, 1) % cub_csi.tube(3, 0));
+    cub_ul_beam.tube(3, 2) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(1, 2) % cub_csi.tube(3, 1) -
+                            cub_csi.tube(1, 1) % cub_csi.tube(3, 2)) +
+      cub_csi.tube(0, 1) % (cub_csi.tube(1, 0) % cub_csi.tube(3, 2) -
+                            cub_csi.tube(1, 2) % cub_csi.tube(3, 0)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(1, 1) % cub_csi.tube(3, 0) -
+                            cub_csi.tube(1, 0) % cub_csi.tube(3, 1));
+    cub_ul_beam.tube(3, 3) =
+      cub_csi.tube(0, 0) % (cub_csi.tube(1, 1) % cub_csi.tube(2, 2) -
+                            cub_csi.tube(1, 2) % cub_csi.tube(2, 1)) +
+      cub_csi.tube(0, 1) % (cub_csi.tube(1, 2) % cub_csi.tube(2, 0) -
+                            cub_csi.tube(1, 0) % cub_csi.tube(2, 2)) +
+      cub_csi.tube(0, 2) % (cub_csi.tube(1, 0) % cub_csi.tube(2, 1) -
+                            cub_csi.tube(1, 1) % cub_csi.tube(2, 0));
+
+    // Multiply the adjoint matrix with the reciprocal of the determinant
+    cub_ul_beam.tube(0, 0) = cub_ul_beam.tube(0, 0) % cub_det;
+    cub_ul_beam.tube(0, 1) = cub_ul_beam.tube(0, 1) % cub_det;
+    cub_ul_beam.tube(0, 2) = cub_ul_beam.tube(0, 2) % cub_det;
+    cub_ul_beam.tube(0, 3) = cub_ul_beam.tube(0, 3) % cub_det;
+    cub_ul_beam.tube(1, 0) = cub_ul_beam.tube(1, 0) % cub_det;
+    cub_ul_beam.tube(1, 1) = cub_ul_beam.tube(1, 1) % cub_det;
+    cub_ul_beam.tube(1, 2) = cub_ul_beam.tube(1, 2) % cub_det;
+    cub_ul_beam.tube(1, 3) = cub_ul_beam.tube(1, 3) % cub_det;
+    cub_ul_beam.tube(2, 0) = cub_ul_beam.tube(2, 0) % cub_det;
+    cub_ul_beam.tube(2, 1) = cub_ul_beam.tube(2, 1) % cub_det;
+    cub_ul_beam.tube(2, 2) = cub_ul_beam.tube(2, 2) % cub_det;
+    cub_ul_beam.tube(2, 3) = cub_ul_beam.tube(2, 3) % cub_det;
+    cub_ul_beam.tube(3, 0) = cub_ul_beam.tube(3, 0) % cub_det;
+    cub_ul_beam.tube(3, 1) = cub_ul_beam.tube(3, 1) % cub_det;
+    cub_ul_beam.tube(3, 2) = cub_ul_beam.tube(3, 2) % cub_det;
+    cub_ul_beam.tube(3, 3) = cub_ul_beam.tube(3, 3) % cub_det;
+#else
     // Prepare CSI matrix. Read in vectors.
     auto* cx_src =
       reinterpret_cast<complex_float*>(csi_buffers_[frame_slot][0]);
