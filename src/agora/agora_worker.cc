@@ -212,9 +212,16 @@ void AgoraWorker::WorkerThread(int tid) {
       stats_);
 
   // Uplink workers
+#if defined(USE_ACC100)
+  // RtAssert(config_->WorkerThreadNum() == 1, "ACC100: not compatible with multi thread.");
+  auto compute_decoding = std::make_unique<DoDecode_ACC>(
+      config_, tid, buffer_->GetDemod(), buffer_->GetDecod(), 
+      phy_stats_, stats_);
+#else
   auto compute_decoding = std::make_unique<DoDecode>(
       config_, tid, buffer_->GetDemod(), buffer_->GetDecod(), mac_sched_,
       phy_stats_, stats_);
+#endif
 
   auto compute_demul = std::make_unique<DoDemul>(
       config_, tid, buffer_->GetFft(), buffer_->GetUlBeamMatrix(),
