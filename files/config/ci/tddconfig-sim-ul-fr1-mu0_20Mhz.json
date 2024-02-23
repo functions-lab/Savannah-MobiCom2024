@@ -1,18 +1,18 @@
 {
     /* Simulating FlexRAN traffic load */
-    "bs_radio_num": 4,
-    "ue_radio_num": 4,
-    "cp_size": 64,
-    "fft_size": 1024,
-    "ofdm_data_num": 784,
+    "bs_radio_num": 16,
+    "ue_radio_num": 16,
+    "cp_size": 128,
+    "fft_size": 2048,
+    "ofdm_data_num": 1264,
     /* num_subcarrier (12) * num_rb_group (4) * num_rb_per_group (16) */
-    "demul_block_size": 784,
+    "demul_block_size": 1264,
     "frame_schedule": [
         /* "PUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUU" */
-        /* "PUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG" */
+        "PUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
         /* "PPUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG" */
         /* "PPPPPPPPPPPPPPPPUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG" */
-        "PPPPUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG"
+        /* "PPPPUUUUUUUUUUUUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG" */
         /* "PPPPUUUUUGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGGG" */
         /* "PGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGUGGGUUUUUUUUUUUUUUUU" */
         /* 70 symbols to simulate 5 slots in a frame */
@@ -33,11 +33,11 @@
     /* mu0 = 15 kHz, mu1 = 30 kHz, mu2 = 60 kHz, mu3 = 120 kHz */
     /* sample_rate = mu * fft_size */
     /* mu0: 15.36e6, mu1: 30.72e6, mu2: 61.44e6, mu3: 122.88e6 */
-    "sample_rate": 122.88e6,
+    "sample_rate": 30.72e6,
     "max_frame": 200,
 
     "small_mimo_acc": false,
-    "freq_orthogonal_pilot": false,
+    "freq_orthogonal_pilot": true,
     "group_pilot_sc": false,
     "beam_block_size": 1, /* allow bulk computation when group_pilot_sc is disabled */
     "client_ul_pilot_syms": 2,
@@ -46,7 +46,7 @@
     "exclude_cores": [
         0
     ],
-    "worker_thread_num": 1,
+    "worker_thread_num": 20,
     "socket_thread_num": 2,
     "dpdk_port_offset": 2
 }
