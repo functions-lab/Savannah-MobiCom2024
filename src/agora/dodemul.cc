@@ -570,7 +570,7 @@ EventData DoDemul::Launch(size_t tag) {
       }
     }
 
-#if defined(__AVX512F__) && (defined(AVX512_MATOP) || defined(ARMA_VEC_MATOP))
+#if (defined(__AVX512F__) && defined(AVX512_MATOP)) || defined(ARMA_VEC_MATOP)
     // store back to Armadillo matrix
     cub_equaled.tube(0, 0) = vec_equal_0;
     cub_equaled.tube(1, 0) = vec_equal_1;
@@ -751,15 +751,6 @@ EventData DoDemul::Launch(size_t tag) {
                                 vec_ul_beam_3_1 % vec_data_1 +
                                 vec_ul_beam_3_2 % vec_data_2 +
                                 vec_ul_beam_3_3 % vec_data_3;
-    
-    complex_float* ptr_equal_0 =
-      reinterpret_cast<complex_float*>(vec_equal_0.memptr());
-    complex_float* ptr_equal_1 =
-      reinterpret_cast<complex_float*>(vec_equal_1.memptr());
-    complex_float* ptr_equal_2 =
-      reinterpret_cast<complex_float*>(vec_equal_2.memptr());
-    complex_float* ptr_equal_3 =
-      reinterpret_cast<complex_float*>(vec_equal_3.memptr());
     // delay storing to cub_equaled to avoid frequent avx512-armadillo conversion
 #elif defined(ARMA_CUBE_MATOP)
     // Step 0: Re-arrange data
@@ -1075,7 +1066,7 @@ EventData DoDemul::Launch(size_t tag) {
       }
     }
 
-#if defined(__AVX512F__) && (defined(AVX512_MATOP) || defined(ARMA_VEC_MATOP))
+#if (defined(__AVX512F__) && defined(AVX512_MATOP)) || defined(ARMA_VEC_MATOP)
     // store back to Armadillo matrix
     cub_equaled.tube(0, 0) = vec_equal_0;
     cub_equaled.tube(1, 0) = vec_equal_1;

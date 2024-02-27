@@ -466,7 +466,7 @@ void Stats::PrintPerFrameDone(PrintType print_type, size_t frame_id) const {
                                         frame_id));
         break;
       case (PrintType::kFFTPilots):
-        AGORA_LOG_INFO("Main [frame %zu + %.2f ms]: FFT-ed all pilots\n",
+        AGORA_LOG_INFO("Main [frame %zu + %.4f ms]: FFT-ed all pilots\n",
                        frame_id,
                        MasterGetDeltaMs(TsType::kFFTPilotsDone,
                                         TsType::kFirstSymbolRX, frame_id));
