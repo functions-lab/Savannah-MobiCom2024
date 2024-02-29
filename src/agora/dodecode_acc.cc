@@ -221,9 +221,9 @@ DoDecode_ACC::DoDecode_ACC(
 
   // char pool_name[RTE_MEMPOOL_NAMESIZE];
 
-  in_mbuf_pool = rte_pktmbuf_pool_create("in_pool_0", 16383, 0, 0, 22744, 0);
+  in_mbuf_pool = rte_pktmbuf_pool_create("in_pool_0", 16383, 0, 0, 45488, 0);
   out_mbuf_pool =
-      rte_pktmbuf_pool_create("hard_out_pool_0", 16383, 0, 0, 22744, 0);
+      rte_pktmbuf_pool_create("hard_out_pool_0", 16383, 0, 0, 45488, 0);
 
   if (in_mbuf_pool == nullptr or out_mbuf_pool == nullptr) {
     std::cerr << "Error: Unable to create mbuf pool: "
