@@ -465,6 +465,12 @@ void Stats::PrintPerFrameDone(PrintType print_type, size_t frame_id) const {
                        MasterGetDeltaMs(TsType::kRXDone, TsType::kFirstSymbolRX,
                                         frame_id));
         break;
+      case (PrintType::kProcessingStart):
+        AGORA_LOG_INFO("Main [frame %zu + %.4f ms]: Started processing\n",
+                       frame_id,
+                       MasterGetDeltaMs(TsType::kProcessingStarted,
+                                        TsType::kFirstSymbolRX, frame_id));
+        break;
       case (PrintType::kFFTPilots):
         AGORA_LOG_INFO("Main [frame %zu + %.4f ms]: FFT-ed all pilots\n",
                        frame_id,

@@ -105,6 +105,7 @@ static const std::map<DoerType, std::string> kDoerNames = {
 enum class PrintType : int {
   kPacketRXPilots,
   kPacketRX,
+  kProcessingStart,
   kFFTPilots,
   kFFTData,
   kFFTCal,

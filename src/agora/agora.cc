@@ -319,7 +319,9 @@ void Agora::TryScheduleFft() {
 
         if (this->fft_created_count_ == 0) {
           this->stats_->MasterSetTsc(TsType::kProcessingStarted,
-                                      frame_tracking_.cur_sche_frame_id_);
+                                     frame_tracking_.cur_sche_frame_id_);
+          stats_->PrintPerFrameDone(PrintType::kProcessingStart,
+                                    frame_tracking_.cur_sche_frame_id_);
         }
         this->fft_created_count_++;
         if (this->fft_created_count_ ==
@@ -341,17 +343,21 @@ size_t Agora::FetchStreamerEvent(std::vector<EventData>& events_list) {
   size_t remaining_events = events_list.size();
   for (size_t i = 0; i < config_->SocketThreadNum(); i++) {
     if (remaining_events > 0) {
-      //Restrict the amount from each socket
+      // Restrict the amount from each socket
       const size_t request_events =
           std::min(kDequeueBulkSizeTXRX, remaining_events);
-      const size_t new_events = message_->GetRxConQ()->try_dequeue_bulk_from_producer(
-          *(message_->GetRxPTokPtr(i)), &events_list.at(total_events), request_events);
+      const size_t new_events =
+          message_->GetRxConQ()->try_dequeue_bulk_from_producer(
+              *(message_->GetRxPTokPtr(i)),
+              &events_list.at(total_events),
+              request_events);
       remaining_events = remaining_events - new_events;
       total_events = total_events + new_events;
     } else {
       AGORA_LOG_WARN(
           "remaining_events = %zu:%zu, queue %zu num elements %zu\n",
-          remaining_events, total_events, i, message_->GetRxConQ()->size_approx());
+          remaining_events, total_events, i,
+          message_->GetRxConQ()->size_approx());
     }
   }
 
