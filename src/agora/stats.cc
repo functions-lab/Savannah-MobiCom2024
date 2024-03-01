@@ -466,7 +466,7 @@ void Stats::PrintPerFrameDone(PrintType print_type, size_t frame_id) const {
                                         frame_id));
         break;
       case (PrintType::kProcessingStart):
-        AGORA_LOG_INFO("Main [frame %zu + %.2f ms]: Started processing\n",
+        AGORA_LOG_INFO("Main [frame %zu + %.4f ms]: Started processing\n",
                        frame_id,
                        MasterGetDeltaMs(TsType::kProcessingStarted,
                                         TsType::kFirstSymbolRX, frame_id));
