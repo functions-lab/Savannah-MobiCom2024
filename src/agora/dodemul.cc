@@ -226,9 +226,18 @@ EventData DoDemul::Launch(size_t tag) {
         theta_inc_f = ul_phase_shift_per_symbol_[frame_slot](0, 0);
         float cur_theta_f = theta_vec(0) + (symbol_idx_ul * theta_inc_f);
         vec_equaled *= arma::cx_float(cos(-cur_theta_f), sin(-cur_theta_f));
+
+#if !defined(TIME_EXCLUSIVE)
+        auto ue_list = mac_sched_->ScheduledUeList(frame_id, base_sc_id);
+        const size_t data_symbol_idx_ul =
+            symbol_idx_ul - this->cfg_->Frame().ClientUlPilotSymbols();
+        // Measure EVM from ground truth
+        for (size_t i = 0; i < max_sc_ite; i++) {
+          phy_stats_->UpdateEvm(frame_id, data_symbol_idx_ul, i,
+                                vec_equaled.subvec(i, i), ue_list);
+        }
+#endif
       }
-  
-      // Not update EVM for the special, time-exclusive case
     }
     duration_stat_equal_->task_count_++;
     duration_stat_equal_->task_duration_[3] +=
@@ -546,19 +555,19 @@ EventData DoDemul::Launch(size_t tag) {
             arma::cx_fmat(cos(-cur_theta), sin(-cur_theta));
 
 #if defined(__AVX512F__) && defined(AVX512_MATOP)
-      __m512 ph_corr_0 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(0, 0));
-      __m512 ph_corr_1 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(1, 0));
+        __m512 ph_corr_0 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(0, 0));
+        __m512 ph_corr_1 = CommsLib::M512ComplexCf32Set1(mat_phase_correct(1, 0));
 
-      // CommsLib::PrintM512ComplexCf32(ph_corr_0);
-      // CommsLib::PrintM512ComplexCf32(ph_corr_1);
-      for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
-        __m512 eq_0 = _mm512_loadu_ps(ptr_equal_0+i);
-        __m512 eq_1 = _mm512_loadu_ps(ptr_equal_1+i);
-        eq_0 = CommsLib::M512ComplexCf32Mult(eq_0, ph_corr_0, false);
-        eq_1 = CommsLib::M512ComplexCf32Mult(eq_1, ph_corr_1, false);
-        _mm512_storeu_ps(ptr_equal_0+i, eq_0);
-        _mm512_storeu_ps(ptr_equal_1+i, eq_1);
-      }
+        // CommsLib::PrintM512ComplexCf32(ph_corr_0);
+        // CommsLib::PrintM512ComplexCf32(ph_corr_1);
+        for (size_t i = 0; i < max_sc_ite; i += kSCsPerCacheline) {
+          __m512 eq_0 = _mm512_loadu_ps(ptr_equal_0+i);
+          __m512 eq_1 = _mm512_loadu_ps(ptr_equal_1+i);
+          eq_0 = CommsLib::M512ComplexCf32Mult(eq_0, ph_corr_0, false);
+          eq_1 = CommsLib::M512ComplexCf32Mult(eq_1, ph_corr_1, false);
+          _mm512_storeu_ps(ptr_equal_0+i, eq_0);
+          _mm512_storeu_ps(ptr_equal_1+i, eq_1);
+        }
 #elif defined(ARMA_VEC_MATOP)
         vec_equal_0 *= mat_phase_correct(0, 0);
         vec_equal_1 *= mat_phase_correct(1, 0);
@@ -567,6 +576,8 @@ EventData DoDemul::Launch(size_t tag) {
 #else
         cub_equaled.each_slice() %= mat_phase_correct;
 #endif
+
+        // Not update EVM for the special, time-exclusive case
       }
     }
 
@@ -1063,6 +1074,7 @@ EventData DoDemul::Launch(size_t tag) {
 #else
         cub_equaled.each_slice() %= mat_phase_correct;
 #endif
+        // Not update EVM for the special, time-exclusive case
       }
     }
 
