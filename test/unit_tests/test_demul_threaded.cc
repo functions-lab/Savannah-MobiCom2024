@@ -167,8 +167,8 @@ TEST(TestDemul, VaryingConfig) {
   std::array<arma::fmat, kFrameWnd> ul_phase_base_;
   std::array<arma::fmat, kFrameWnd> ul_phase_shift_per_symbol_;
   for (size_t frame = 0; frame < kFrameWnd; frame++) {
-    ul_phase_base_[frame] = arma::fmat(
-        cfg->UeAntNum(), cfg->Frame().ClientUlPilotSymbols());
+    ul_phase_base_[frame] =
+        arma::fmat(cfg->UeAntNum(), cfg->Frame().ClientUlPilotSymbols());
     ul_phase_shift_per_symbol_[frame] = ul_phase_base_[frame].col(0);
   }
 

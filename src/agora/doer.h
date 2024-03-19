@@ -18,13 +18,12 @@
 class Doer {
  public:
 #ifdef SINGLE_THREAD
-  virtual bool TryLaunch(
-      std::queue<EventData>& task_queue,
-      std::queue<EventData>& complete_task_queue) {
+  virtual bool TryLaunch(std::queue<EventData>& task_queue,
+                         std::queue<EventData>& complete_task_queue) {
     EventData req_event;
 
     ///Each event is handled by 1 Doer(Thread) and each tag is processed sequentually
-    if (!task_queue.empty()) { // TODO: remove try launch but directly launch
+    if (!task_queue.empty()) {  // TODO: remove try launch but directly launch
       req_event = task_queue.front();
       task_queue.pop();
       // We will enqueue one response event containing results for all

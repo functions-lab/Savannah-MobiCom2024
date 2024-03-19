@@ -630,16 +630,18 @@ Config::Config(std::string jsonfilename)
   small_mimo_acc_ = tdd_conf.value("small_mimo_acc", false);
   if (small_mimo_acc_) {
     RtAssert((bs_ant_num_ == 1 && ue_ant_num_ == 1) ||
-             (bs_ant_num_ == 2 && ue_ant_num_ == 2) ||
-             (bs_ant_num_ == 4 && ue_ant_num_ == 4),
+                 (bs_ant_num_ == 2 && ue_ant_num_ == 2) ||
+                 (bs_ant_num_ == 4 && ue_ant_num_ == 4),
              "Small MIMO Acceleration is only supported for 1x1/2x2/4x4 MIMO");
   }
 
   demul_block_size_ = tdd_conf.value("demul_block_size", 48);
   if (small_mimo_acc_ && (demul_block_size_ != ofdm_data_num_)) {
-    AGORA_LOG_WARN("Demodulation block size must be equal to number of data "
-                   "subcarriers when small_mimo_acc is enabled. Setting "
-                   "demul_block_size to ofdm_data_num %zu\n", ofdm_data_num_);
+    AGORA_LOG_WARN(
+        "Demodulation block size must be equal to number of data "
+        "subcarriers when small_mimo_acc is enabled. Setting "
+        "demul_block_size to ofdm_data_num %zu\n",
+        ofdm_data_num_);
     demul_block_size_ = ofdm_data_num_;
   }
   RtAssert(demul_block_size_ % kSCsPerCacheline == 0,
@@ -669,9 +671,11 @@ Config::Config(std::string jsonfilename)
     }
   }
   if (small_mimo_acc_ && (beam_block_size_ != ofdm_data_num_)) {
-    AGORA_LOG_WARN("Beamweight block size must be equal to number of data "
-                   "subcarriers when small_mimo_acc is enabled. Setting "
-                   "beam_block_size to ofdm_data_num %zu\n", ofdm_data_num_);
+    AGORA_LOG_WARN(
+        "Beamweight block size must be equal to number of data "
+        "subcarriers when small_mimo_acc is enabled. Setting "
+        "beam_block_size to ofdm_data_num %zu\n",
+        ofdm_data_num_);
     beam_block_size_ = ofdm_data_num_;
   }
   beam_events_per_symbol_ = 1 + (ofdm_data_num_ - 1) / beam_block_size_;
@@ -806,7 +810,7 @@ Config::Config(std::string jsonfilename)
   AGORA_LOG_INFO("Traffic calculated based on Faros ADC Settings\n");
   static const size_t kBitsPerSample = 12 * 2;
 #endif
-  
+
   const double bit_rate_mbps = (rate_ * kBitsPerSample) / 1e6;
   //For framer mode, we can ignore the Beacon
   //Double count the UlCal and DLCal to simplify things

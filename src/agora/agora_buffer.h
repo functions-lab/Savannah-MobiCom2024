@@ -11,8 +11,8 @@
 #include <queue>
 
 #include "common_typedef_sdk.h"
-#include "concurrentqueue.h"
 #include "concurrent_queue_wrapper.h"
+#include "concurrentqueue.h"
 #include "config.h"
 #include "mac_scheduler.h"
 #include "memory_manage.h"
@@ -122,8 +122,8 @@ struct SchedInfo {
 class MessageInfo {
  public:
   explicit MessageInfo(size_t queue_size, size_t rx_queue_size,
-                       size_t num_socket_thread) :
-      num_socket_thread(num_socket_thread) {
+                       size_t num_socket_thread)
+      : num_socket_thread(num_socket_thread) {
     tx_concurrent_queue = moodycamel::ConcurrentQueue<EventData>(queue_size);
     rx_concurrent_queue = moodycamel::ConcurrentQueue<EventData>(rx_queue_size);
 
@@ -181,7 +181,7 @@ class MessageInfo {
                                           std::vector<EventData>& events_list) {
     size_t total_events = 0;
     size_t max_events = events_list.size();
-    std::queue<EventData> *comp_queue = &this->GetCompQueue(qid);
+    std::queue<EventData>* comp_queue = &this->GetCompQueue(qid);
     while (!comp_queue->empty() && total_events < max_events) {
       events_list.at(total_events) = comp_queue->front();
       comp_queue->pop();
@@ -199,8 +199,8 @@ class MessageInfo {
   inline moodycamel::ConcurrentQueue<EventData>* GetTaskQueue(
       EventType event_type, size_t qid) {
     return &task_queue_.at(qid)
-                       .at(static_cast<size_t>(event_type))
-                       .concurrent_q_;
+                .at(static_cast<size_t>(event_type))
+                .concurrent_q_;
   }
   inline moodycamel::ConcurrentQueue<EventData>& GetCompQueue(size_t qid) {
     return complete_task_queue_.at(qid);
@@ -231,7 +231,7 @@ class MessageInfo {
 
 #ifdef SINGLE_THREAD
   std::array<std::array<std::queue<EventData>, kNumEventTypes>, kScheduleQueues>
-    task_queues;
+      task_queues;
   std::array<std::queue<EventData>, kScheduleQueues> complete_task_queues_;
 #else
   std::array<std::array<SchedInfo, kNumEventTypes>, kScheduleQueues>
@@ -241,7 +241,7 @@ class MessageInfo {
   std::array<std::array<moodycamel::ProducerToken*, kMaxThreads>,
              kScheduleQueues>
       worker_ptoks_ptr_;
-  
+
   inline void Alloc(size_t queue_size) {
     // Allocate memory for the task concurrent queues
     for (auto& queue : complete_task_queue_) {

@@ -228,8 +228,7 @@ EventData DoFFT::Launch(size_t tag) {
         const size_t block_offset =
             kUsePartialTrans
                 ? block_base_offset + (ant_id * block_size)
-                : (cfg_->OfdmDataNum() * ant_id) +
-                      (block_idx * block_size);
+                : (cfg_->OfdmDataNum() * ant_id) + (block_idx * block_size);
         complex_float* src = &csi_buffers_[frame_slot][0][block_offset];
         for (ssize_t ue_id = cfg_->UeAntNum() - 1; ue_id >= 0; ue_id--) {
           complex_float* dst = &csi_buffers_[frame_slot][ue_id][block_offset];
@@ -307,7 +306,7 @@ EventData DoFFT::Launch(size_t tag) {
 void DoFFT::FillOutputBuffer(complex_float* out_buf, size_t ant_id,
                              SymbolType symbol_type) const {
   bool partial_transpose = kUsePartialTrans;
-  if (cfg_->SmallMimoAcc()) { // enables special case acceleration
+  if (cfg_->SmallMimoAcc()) {  // enables special case acceleration
     // In special case of 2x2/4x4 MIMO, disable partial transpose to store
     // desired data orders: for each (antenna, ue) pair, store subcarriers
     // continuously. This reduces the data gathering time for CSI estimation.
@@ -316,7 +315,7 @@ void DoFFT::FillOutputBuffer(complex_float* out_buf, size_t ant_id,
       if (symbol_type == SymbolType::kPilot || symbol_type == SymbolType::kUL) {
 #if defined(ARMA_CUBE_MATOP)
         partial_transpose = kUsePartialTrans;
-#else //  defined(AVX512_MATOP) || defined(ARMA_VEC_MATOP) || not defined
+#else  //  defined(AVX512_MATOP) || defined(ARMA_VEC_MATOP) || not defined
         partial_transpose = false;
 #endif
       }

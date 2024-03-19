@@ -522,9 +522,8 @@ class Config {
   /// Return the subcarrier ID which we should refer to for the beamweight
   /// matrices of subcarrier [sc_id].
   inline size_t GetBeamScId(size_t sc_id) const {
-    return this->group_pilot_sc_
-               ? sc_id - (sc_id % this->pilot_sc_group_size_)
-               : sc_id;
+    return this->group_pilot_sc_ ? sc_id - (sc_id % this->pilot_sc_group_size_)
+                                 : sc_id;
   }
 
   /// Get the calibration buffer for this frame and subcarrier ID

@@ -512,7 +512,7 @@ void RadioUHDSdr::PrintSettings() const {
                     << std::endl;
     }
     // size_t total_rx_channel = EnabledChannels().size()* 3 cfg_->Numradios()*2;
-    size_t total_rx_channel = cfg_->NumRadios()*2;
+    size_t total_rx_channel = cfg_->NumRadios() * 2;
     for (size_t c = 0; c < total_rx_channel; c++) {
       if (c < dev_->get_rx_num_channels()) {
         print_message << "RX Channel " << c << std::endl
@@ -531,7 +531,7 @@ void RadioUHDSdr::PrintSettings() const {
     }
 
     // size_t total_tx_channel = EnabledChannels().size()* 2;
-    size_t total_tx_channel = cfg_->NumRadios()*2;
+    size_t total_tx_channel = cfg_->NumRadios() * 2;
     for (size_t c = 0; c < total_tx_channel; c++) {
       if (c < dev_->get_tx_num_channels()) {
         print_message << "TX Channel " << c << std::endl

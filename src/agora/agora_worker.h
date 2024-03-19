@@ -13,11 +13,11 @@
 #include "agora_buffer.h"
 #include "config.h"
 #include "csv_logger.h"
+#include "doer.h"
 #include "mac_scheduler.h"
 #include "mat_logger.h"
 #include "phy_stats.h"
 #include "stats.h"
-#include "doer.h"
 
 class AgoraWorker {
  public:
@@ -31,13 +31,12 @@ class AgoraWorker {
 #endif
 
  private:
-
 #ifdef SINGLE_THREAD
   void InitializeWorker();
 
   std::vector<std::shared_ptr<Doer> > computers_vec;
   std::vector<EventType> events_vec;
-  int tid; // TODO: remove thread id for single-core
+  int tid;  // TODO: remove thread id for single-core
   size_t cur_qid;
   size_t empty_queue_itrs;
   bool empty_queue;

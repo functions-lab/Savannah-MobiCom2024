@@ -114,21 +114,29 @@ class Table {
   // Functions for unit tests (functional/correctness verification)
   const std::type_info& get_typeid() { return typeid(T); }
   bool operator==(Table& other) {
-    if (this->dim1_ != other.Dim1()) { return false; }
-    if (this->dim2_ != other.Dim2()) { return false; }
-    if (typeid(T) != other.get_typeid()) { return false; }
+    if (this->dim1_ != other.Dim1()) {
+      return false;
+    }
+    if (this->dim2_ != other.Dim2()) {
+      return false;
+    }
+    if (typeid(T) != other.get_typeid()) {
+      return false;
+    }
     for (size_t i = 0; i < dim1_; i++) {
       T* other_vec = other[i];
       for (size_t j = 0; j < dim2_; j++) {
-        if (data_[i*dim2_+j] != other_vec[j]) { return false; }
+        if (data_[i * dim2_ + j] != other_vec[j]) {
+          return false;
+        }
       }
     }
     return true;
   }
   Agora_memory::Alignment_t get_alignment() { return (this->alignment); }
-  T* get_data_ptr() {return data_; }
+  T* get_data_ptr() { return data_; }
   Table& operator=(Table& other) {
-    if (this == &other) { // Check for self-assignment
+    if (this == &other) {  // Check for self-assignment
       return *this;
     }
     this->Malloc(other.Dim1(), other.Dim2(), other.get_alignment());

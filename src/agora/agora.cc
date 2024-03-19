@@ -68,9 +68,9 @@ Agora::Agora(Config* const cfg)
 
   // Create concurrent queues for streamers & STL queue for doers
   message_ = std::make_unique<MessageInfo>(
-    kDefaultWorkerQueueSize * config_->Frame().NumDataSyms(),
-    kDefaultMessageQueueSize * config_->Frame().NumDataSyms(),
-    config_->SocketThreadNum());
+      kDefaultWorkerQueueSize * config_->Frame().NumDataSyms(),
+      kDefaultMessageQueueSize * config_->Frame().NumDataSyms(),
+      config_->SocketThreadNum());
 
   InitializeCounters();
   InitializeThreads();
@@ -103,7 +103,7 @@ Agora::~Agora() {
   recorder_.reset();
   stats_.reset();
   phy_stats_.reset();
-  message_.reset(); // remove tokens for each doer
+  message_.reset();  // remove tokens for each doer
 }
 
 void Agora::Stop() {
@@ -212,8 +212,8 @@ void Agora::ScheduleAntennasTX(size_t frame_id, size_t symbol_id) {
           frame_id, symbol_id, worker.size(), enqueue_worker_id);
 
       TryEnqueueBulkFallback(message_->GetTxConQ(),
-                             message_->GetTxPTokPtr(enqueue_worker_id), worker.data(),
-                             worker.size());
+                             message_->GetTxPTokPtr(enqueue_worker_id),
+                             worker.data(), worker.size());
     }
     enqueue_worker_id++;
   }
@@ -313,7 +313,7 @@ void Agora::TryScheduleFft() {
 
       for (size_t j = 0; j < config_->FftBlockSize(); j++) {
         RtAssert(!cur_fftq.empty(),
-                  "Using front element cur_fftq when it is empty");
+                 "Using front element cur_fftq when it is empty");
         do_fft_task.tags_[j] = cur_fftq.front().tag_;
         cur_fftq.pop();
 
@@ -324,8 +324,7 @@ void Agora::TryScheduleFft() {
                                     frame_tracking_.cur_sche_frame_id_);
         }
         this->fft_created_count_++;
-        if (this->fft_created_count_ ==
-            rx_counters_.num_rx_pkts_per_frame_) {
+        if (this->fft_created_count_ == rx_counters_.num_rx_pkts_per_frame_) {
           this->fft_created_count_ = 0;
           if (cfg->BigstationMode() == true) {
             this->CheckIncrementScheduleFrame(
@@ -348,16 +347,14 @@ size_t Agora::FetchStreamerEvent(std::vector<EventData>& events_list) {
           std::min(kDequeueBulkSizeTXRX, remaining_events);
       const size_t new_events =
           message_->GetRxConQ()->try_dequeue_bulk_from_producer(
-              *(message_->GetRxPTokPtr(i)),
-              &events_list.at(total_events),
+              *(message_->GetRxPTokPtr(i)), &events_list.at(total_events),
               request_events);
       remaining_events = remaining_events - new_events;
       total_events = total_events + new_events;
     } else {
-      AGORA_LOG_WARN(
-          "remaining_events = %zu:%zu, queue %zu num elements %zu\n",
-          remaining_events, total_events, i,
-          message_->GetRxConQ()->size_approx());
+      AGORA_LOG_WARN("remaining_events = %zu:%zu, queue %zu num elements %zu\n",
+                     remaining_events, total_events, i,
+                     message_->GetRxConQ()->size_approx());
     }
   }
 
@@ -368,15 +365,15 @@ size_t Agora::FetchStreamerEvent(std::vector<EventData>& events_list) {
       remaining_events = remaining_events - new_events;
       total_events = total_events + new_events;
     } else {
-      AGORA_LOG_WARN(
-          "remaining_events = %zu:%zu, mac queue num elements %zu\n",
-          remaining_events, total_events, mac_response_queue_.size_approx());
+      AGORA_LOG_WARN("remaining_events = %zu:%zu, mac queue num elements %zu\n",
+                     remaining_events, total_events,
+                     mac_response_queue_.size_approx());
     }
   }
   return total_events;
 }
 
-size_t Agora::FetchDoerEvent(std::vector<EventData>& events_list) {  
+size_t Agora::FetchDoerEvent(std::vector<EventData>& events_list) {
   return message_->DequeueEventCompQueueBulk(
       frame_tracking_.cur_proc_frame_id_ & 0x1, events_list);
 }
@@ -405,14 +402,13 @@ void Agora::Start() {
   bool finish = false;
 
   while ((config_->Running() == true) &&
-         (SignalHandler::GotExitSignal() == false) &&
-         (!finish)) {
-
+         (SignalHandler::GotExitSignal() == false) && (!finish)) {
     // size_t start_tsc = GetTime::WorkerRdtsc();
 
     // Get a batch of events
-    const size_t num_events = is_turn_to_dequeue_from_io ?
-      FetchStreamerEvent(events_list) : FetchDoerEvent(events_list);
+    const size_t num_events = is_turn_to_dequeue_from_io
+                                  ? FetchStreamerEvent(events_list)
+                                  : FetchDoerEvent(events_list);
 
     is_turn_to_dequeue_from_io = !is_turn_to_dequeue_from_io;
     // duration_stat_->task_duration_[1] += GetTime::WorkerRdtsc() - start_tsc;
@@ -422,7 +418,9 @@ void Agora::Start() {
       // size_t tsc0 = GetTime::WorkerRdtsc();
 
       HandleEvents(events_list.at(ev_i), tx_count, tx_begin, finish);
-      if (finish) { break; }
+      if (finish) {
+        break;
+      }
 
       // duration_stat_->task_count_++;
       // duration_stat_->task_duration_[2] += GetTime::WorkerRdtsc() - tsc0;
@@ -433,9 +431,9 @@ void Agora::Start() {
     } /* End of for */
 
     // duration_stat_->task_duration_[0] += GetTime::WorkerRdtsc() - start_tsc;
-  }   /* End of while */
+  } /* End of while */
 
-// finish:
+  // finish:
   AGORA_LOG_INFO("Agora: printing stats and saving to file\n");
   this->stats_->PrintSummary();
   this->stats_->SaveToFile();
@@ -494,9 +492,8 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
       for (size_t tag_id = 0; (tag_id < event.num_tags_); tag_id++) {
         const size_t frame_id = gen_tag_t(event.tags_[tag_id]).frame_id_;
         stats_->PrintPerTaskDone(PrintType::kBeam, frame_id, 0,
-                                  beam_counters_.GetTaskCount(frame_id), 0);
-        const bool last_beam_task =
-            this->beam_counters_.CompleteTask(frame_id);
+                                 beam_counters_.GetTaskCount(frame_id), 0);
+        const bool last_beam_task = this->beam_counters_.CompleteTask(frame_id);
         if (last_beam_task == true) {
           this->stats_->MasterSetTsc(TsType::kBeamDone, frame_id);
           beam_last_frame_ = frame_id;
@@ -540,8 +537,8 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
 
       if (last_demul_task == true) {
         if (kUplinkHardDemod == false) {
-          ScheduleCodeblocks(EventType::kDecode, Direction::kUplink,
-                              frame_id, symbol_id);
+          ScheduleCodeblocks(EventType::kDecode, Direction::kUplink, frame_id,
+                             symbol_id);
         }
         stats_->PrintPerSymbolDone(
             PrintType::kDemul, frame_id, symbol_id,
@@ -559,8 +556,7 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
             this->phy_stats_->PrintEvmStats(frame_id, ue_list);
           }
           this->phy_stats_->RecordCsiCond(frame_id, config_->LogScNum());
-          this->phy_stats_->RecordEvm(frame_id, config_->LogScNum(),
-                                      ue_map);
+          this->phy_stats_->RecordEvm(frame_id, config_->LogScNum(), ue_map);
           this->phy_stats_->RecordEvmSnr(frame_id, ue_map);
 #endif
           if (kUplinkHardDemod) {
@@ -588,7 +584,7 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
               CheckIncrementScheduleFrame(frame_id, kUplinkComplete);
             } else {
               ScheduleCodeblocks(EventType::kDecode, Direction::kUplink,
-                                  frame_id, symbol_id);
+                                 frame_id, symbol_id);
             }
           }
         }
@@ -657,8 +653,8 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
           const bool work_finished = this->CheckFrameComplete(frame_id);
           if (work_finished == true) {
             // goto finish;
-              finish = true;
-              return;
+            finish = true;
+            return;
           }
         }
       }
@@ -669,23 +665,23 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
       const size_t ue_id = rx_mac_tag_t(event.tags_[0u]).tid_;
       const size_t radio_buf_id = rx_mac_tag_t(event.tags_[0u]).offset_;
       const auto* pkt = reinterpret_cast<const MacPacketPacked*>(
-          &agora_memory_->GetDlBits()[ue_id][radio_buf_id *
-                                              config_->MacBytesNumPerframe(
-                                                  Direction::kDownlink)]);
+          &agora_memory_
+               ->GetDlBits()[ue_id][radio_buf_id * config_->MacBytesNumPerframe(
+                                                       Direction::kDownlink)]);
 
       AGORA_LOG_INFO("Agora: frame %d @ offset %zu %zu @ location %zu\n",
-                      pkt->Frame(), ue_id, radio_buf_id,
-                      reinterpret_cast<intptr_t>(pkt));
+                     pkt->Frame(), ue_id, radio_buf_id,
+                     reinterpret_cast<intptr_t>(pkt));
 
       if (kDebugPrintPacketsFromMac) {
         std::stringstream ss;
 
         for (size_t dl_data_symbol = 0;
-              dl_data_symbol < config_->Frame().NumDlDataSyms();
-              dl_data_symbol++) {
-          ss << "Agora: kPacketFromMac, frame " << pkt->Frame()
-              << ", symbol " << std::to_string(pkt->Symbol()) << " crc "
-              << std::to_string(pkt->Crc()) << " bytes: ";
+             dl_data_symbol < config_->Frame().NumDlDataSyms();
+             dl_data_symbol++) {
+          ss << "Agora: kPacketFromMac, frame " << pkt->Frame() << ", symbol "
+             << std::to_string(pkt->Symbol()) << " crc "
+             << std::to_string(pkt->Crc()) << " bytes: ";
           for (size_t i = 0; i < pkt->PayloadLength(); i++) {
             ss << std::to_string((pkt->Data()[i])) << ", ";
           }
@@ -698,18 +694,17 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
       }
 
       const size_t frame_id = pkt->Frame();
-      const bool last_ue =
-          this->mac_to_phy_counters_.CompleteTask(frame_id, 0);
+      const bool last_ue = this->mac_to_phy_counters_.CompleteTask(frame_id, 0);
       if (last_ue == true) {
         // schedule this frame's encoding
         // Defer the schedule.  If frames are already deferred or the
         // current received frame is too far off
         if ((this->encode_deferral_.empty() == false) ||
             (frame_id >=
-              (frame_tracking_.cur_proc_frame_id_ + kScheduleQueues))) {
+             (frame_tracking_.cur_proc_frame_id_ + kScheduleQueues))) {
           if (kDebugDeferral) {
             AGORA_LOG_INFO("   +++ Deferring encoding of frame %zu\n",
-                            frame_id);
+                           frame_id);
           }
           this->encode_deferral_.push(frame_id);
         } else {
@@ -797,13 +792,11 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
             // Check the available symbols starting from the current symbol
             // Only schedule symbols that are continuously available
             for (size_t sym_id = symbol_idx_dl;
-                  sym_id <= ifft_counters_.GetSymbolCount(frame_id);
-                  sym_id++) {
+                 sym_id <= ifft_counters_.GetSymbolCount(frame_id); sym_id++) {
               const size_t symbol_ifft_frame =
                   ifft_cur_frame_for_symbol_.at(sym_id);
               if (symbol_ifft_frame == frame_id) {
-                ScheduleAntennasTX(frame_id,
-                                    cfg->Frame().GetDLSymbol(sym_id));
+                ScheduleAntennasTX(frame_id, cfg->Frame().GetDLSymbol(sym_id));
                 ifft_next_symbol_++;
               } else {
                 break;
@@ -836,8 +829,7 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
     case EventType::kBroadcast: {
       const size_t frame_id = gen_tag_t(event.tags_[0]).frame_id_;
       this->stats_->MasterSetTsc(TsType::kBroadcastDone, frame_id);
-      for (size_t idx = 0; idx < config_->Frame().NumDlControlSyms();
-            idx++) {
+      for (size_t idx = 0; idx < config_->Frame().NumDlControlSyms(); idx++) {
         size_t symbol_id = config_->Frame().GetDLControlSymbol(idx);
         ScheduleAntennasTX(frame_id, symbol_id);
       }
@@ -849,23 +841,21 @@ void Agora::HandleEvents(EventData& event, size_t& tx_count, double tx_begin,
       const size_t ant_id = gen_tag_t(event.tags_[0]).ant_id_;
       const size_t frame_id = gen_tag_t(event.tags_[0]).frame_id_;
       const size_t symbol_id = gen_tag_t(event.tags_[0]).symbol_id_;
-      stats_->PrintPerTaskDone(
-          PrintType::kPacketTX, frame_id, symbol_id, ant_id,
-          tx_counters_.GetTaskCount(frame_id, symbol_id));
+      stats_->PrintPerTaskDone(PrintType::kPacketTX, frame_id, symbol_id,
+                               ant_id,
+                               tx_counters_.GetTaskCount(frame_id, symbol_id));
       const bool last_tx_task =
           this->tx_counters_.CompleteTask(frame_id, symbol_id);
       if (last_tx_task == true) {
-        stats_->PrintPerSymbolDone(
-            PrintType::kPacketTX, frame_id, symbol_id,
-            tx_counters_.GetSymbolCount(frame_id) + 1);
+        stats_->PrintPerSymbolDone(PrintType::kPacketTX, frame_id, symbol_id,
+                                   tx_counters_.GetSymbolCount(frame_id) + 1);
         // If tx of the first symbol is done
         if (symbol_id == cfg->Frame().GetDLSymbol(0)) {
           this->stats_->MasterSetTsc(TsType::kTXProcessedFirst, frame_id);
           stats_->PrintPerFrameDone(PrintType::kPacketTXFirst, frame_id);
         }
 
-        const bool last_tx_symbol =
-            this->tx_counters_.CompleteSymbol(frame_id);
+        const bool last_tx_symbol = this->tx_counters_.CompleteSymbol(frame_id);
         if (last_tx_symbol == true) {
           this->stats_->MasterSetTsc(TsType::kTXDone, frame_id);
           stats_->PrintPerFrameDone(PrintType::kPacketTX, frame_id);
@@ -993,8 +983,8 @@ void Agora::HandleEventFft(size_t tag) {
         }
       }  // kPrintPhyStats
 #endif
-    }    // last_rc_task
-  }      // kCaLDL || kCalUl
+    }  // last_rc_task
+  }    // kCaLDL || kCalUl
 }
 
 void Agora::UpdateRanConfig(RanConfig rc) {
@@ -1176,10 +1166,9 @@ void Agora::InitializeThreads() {
       agora_memory_.get(), &frame_tracking_);
 
 #ifdef SINGLE_THREAD
-  AGORA_LOG_INFO(
-      "Master/worker thread core %zu, TX/RX thread cores %zu--%zu\n",
-      config_->CoreOffset(), config_->CoreOffset() + 1,
-      config_->CoreOffset() + 1 + config_->SocketThreadNum() - 1);
+  AGORA_LOG_INFO("Master/worker thread core %zu, TX/RX thread cores %zu--%zu\n",
+                 config_->CoreOffset(), config_->CoreOffset() + 1,
+                 config_->CoreOffset() + 1 + config_->SocketThreadNum() - 1);
 #else
   AGORA_LOG_INFO(
       "Master thread core %zu, TX/RX thread cores %zu--%zu, worker thread "

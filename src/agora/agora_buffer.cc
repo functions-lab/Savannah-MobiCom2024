@@ -112,8 +112,8 @@ void AgoraBuffer::AllocateTables() {
 
 void AgoraBuffer::AllocatePhaseShifts() {
   for (size_t frame = 0; frame < kFrameWnd; frame++) {
-    ul_phase_base_[frame] = arma::fmat(
-        config_->UeAntNum(), config_->Frame().ClientUlPilotSymbols());
+    ul_phase_base_[frame] = arma::fmat(config_->UeAntNum(),
+                                       config_->Frame().ClientUlPilotSymbols());
     ul_phase_shift_per_symbol_[frame] = ul_phase_base_[frame].col(0);
   }
 }

@@ -1,7 +1,7 @@
 #include <gtest/gtest.h>
 
-#include <thread>
 #include <queue>
+#include <thread>
 
 #include "concurrentqueue.h"
 

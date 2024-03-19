@@ -78,15 +78,15 @@ enum class DoerType : size_t {
   kBroadcast,
   kPrecode,
   kRC,
-  kSched // used for DurationStat in master function
+  kSched  // used for DurationStat in master function
 };
 
-static constexpr std::array<DoerType, (static_cast<size_t>(DoerType::kSched) + 1)>
-    kAllDoerTypes = {DoerType::kFFT,    DoerType::kCSI,     DoerType::kBeam,
-                     DoerType::kEqual,  DoerType::kDemul,   DoerType::kDecode,
-                     DoerType::kEncode, DoerType::kIFFT,    DoerType::kPrecode,
-                     DoerType::kRC,     DoerType::kSched
-                     };
+static constexpr std::array<DoerType,
+                            (static_cast<size_t>(DoerType::kSched) + 1)>
+    kAllDoerTypes = {DoerType::kFFT,    DoerType::kCSI,   DoerType::kBeam,
+                     DoerType::kEqual,  DoerType::kDemul, DoerType::kDecode,
+                     DoerType::kEncode, DoerType::kIFFT,  DoerType::kPrecode,
+                     DoerType::kRC,     DoerType::kSched};
 static constexpr size_t kNumDoerTypes = kAllDoerTypes.size();
 
 static const std::map<DoerType, std::string> kDoerNames = {

@@ -31,9 +31,8 @@ AgoraWorker::AgoraWorker(Config* cfg, MacScheduler* mac_sched, Stats* stats,
       message_(message),
       buffer_(buffer),
       frame_(frame) {
-  
 #ifdef SINGLE_THREAD
-  tid = 0; // starts with 0 but has only one thread (master)
+  tid = 0;  // starts with 0 but has only one thread (master)
   cur_qid = 0;
   empty_queue_itrs = 0;
   empty_queue = true;
@@ -89,9 +88,9 @@ void AgoraWorker::InitializeWorker() {
 
   // Uplink workers
 #if defined(USE_ACC100)
-  auto compute_decoding = std::make_shared<DoDecode_ACC>(
-      config_, tid, buffer_->GetDemod(), buffer_->GetDecod(), 
-      phy_stats_, stats_);
+  auto compute_decoding =
+      std::make_shared<DoDecode_ACC>(config_, tid, buffer_->GetDemod(),
+                                     buffer_->GetDecod(), phy_stats_, stats_);
 #else
   auto compute_decoding = std::make_shared<DoDecode>(
       config_, tid, buffer_->GetDemod(), buffer_->GetDecod(), mac_sched_,
@@ -131,29 +130,29 @@ void AgoraWorker::InitializeWorker() {
 
 void AgoraWorker::RunWorker() {
   // if (config_->Running() == true) {
-    for (size_t i = 0; i < computers_vec.size(); i++) {
-      if (computers_vec.at(i)->TryLaunch(
-              *message_->GetTaskQueue(events_vec.at(i), cur_qid),
-              message_->GetCompQueue(cur_qid))) {
-        empty_queue = false;
-        break;
-      }
+  for (size_t i = 0; i < computers_vec.size(); i++) {
+    if (computers_vec.at(i)->TryLaunch(
+            *message_->GetTaskQueue(events_vec.at(i), cur_qid),
+            message_->GetCompQueue(cur_qid))) {
+      empty_queue = false;
+      break;
     }
-    // If all queues in this set are empty for 5 iterations,
-    // check the other set of queues
-    if (empty_queue == true) {
-      empty_queue_itrs++;
-      if (empty_queue_itrs == 5) {
-        if (frame_->cur_sche_frame_id_ != frame_->cur_proc_frame_id_) {
-          cur_qid ^= 0x1;
-        } else {
-          cur_qid = (frame_->cur_sche_frame_id_ & 0x1);
-        }
-        empty_queue_itrs = 0;
+  }
+  // If all queues in this set are empty for 5 iterations,
+  // check the other set of queues
+  if (empty_queue == true) {
+    empty_queue_itrs++;
+    if (empty_queue_itrs == 5) {
+      if (frame_->cur_sche_frame_id_ != frame_->cur_proc_frame_id_) {
+        cur_qid ^= 0x1;
+      } else {
+        cur_qid = (frame_->cur_sche_frame_id_ & 0x1);
       }
-    } else {
-      empty_queue = true;
+      empty_queue_itrs = 0;
     }
+  } else {
+    empty_queue = true;
+  }
   // }
 }
 
@@ -214,9 +213,9 @@ void AgoraWorker::WorkerThread(int tid) {
   // Uplink workers
 #if defined(USE_ACC100)
   // RtAssert(config_->WorkerThreadNum() == 1, "ACC100: not compatible with multi thread.");
-  auto compute_decoding = std::make_unique<DoDecode_ACC>(
-      config_, tid, buffer_->GetDemod(), buffer_->GetDecod(), 
-      phy_stats_, stats_);
+  auto compute_decoding =
+      std::make_unique<DoDecode_ACC>(config_, tid, buffer_->GetDemod(),
+                                     buffer_->GetDecod(), phy_stats_, stats_);
 #else
   auto compute_decoding = std::make_unique<DoDecode>(
       config_, tid, buffer_->GetDemod(), buffer_->GetDecod(), mac_sched_,

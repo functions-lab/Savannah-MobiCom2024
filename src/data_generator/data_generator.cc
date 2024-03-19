@@ -157,7 +157,7 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
 
     // the following generated file is used as a reference to compare BLER.
     {
-      std::cout<<"directory is: " << directory << std::endl;
+      std::cout << "directory is: " << directory << std::endl;
       const std::string filename_input =
           directory + kUlLdpcDataPrefix +
           std::to_string(this->cfg_->OfdmCaNum()) + "_ant" +
@@ -203,14 +203,15 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
 // The following are used to generate ACC100 LDPC realted encoding files:
 #if defined(USE_ACC100)
     {
-      std::cout<<"Since using ACC100, generate reference from ACC100" << std::endl;
+      std::cout << "Since using ACC100, generate reference from ACC100"
+                << std::endl;
       const std::string filename_input =
           directory + kUlLdpcACC100DataPrefix +
           std::to_string(this->cfg_->OfdmCaNum()) + "_ant" +
           std::to_string(this->cfg_->UeAntNum()) + ".bin";
       AGORA_LOG_INFO("Saving raw uplink data (using ACC100 LDPC) to %s\n",
                      filename_input.c_str());
-      
+
       auto* fp_input = std::fopen(filename_input.c_str(), "wb");
       if (fp_input == nullptr) {
         AGORA_LOG_ERROR("Failed to create file %s\n", filename_input.c_str());
@@ -233,7 +234,7 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
         }
       }
     }
-#endif  
+#endif
 
     if (kOutputUlScData) {
       std::vector<std::vector<std::vector<std::vector<std::vector<uint8_t>>>>>
@@ -319,10 +320,10 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
                    ul_ldpc_config.NumBlocksInSymbol());
     AGORA_LOG_INFO("NumCbCodewLen(): %u\n", ul_ldpc_config.NumCbCodewLen());
     AGORA_LOG_INFO("NumBlocksInSymbol() input: %f\n",
-                    (double(cfg_->OfdmDataNum()) *
-                     double(cfg_->ModOrderBits(Direction::kUplink))) /
-                     double(ul_ldpc_config.NumCbCodewLen()));
-    RtAssert(ul_ldpc_config.NumBlocksInSymbol() == 1, // TODO: Assumption
+                   (double(cfg_->OfdmDataNum()) *
+                    double(cfg_->ModOrderBits(Direction::kUplink))) /
+                       double(ul_ldpc_config.NumCbCodewLen()));
+    RtAssert(ul_ldpc_config.NumBlocksInSymbol() == 1,  // TODO: Assumption
              "This version of Agora does not support code block partition");
     pre_ifft_data_syms.resize(this->cfg_->UeAntNum() *
                               this->cfg_->Frame().NumUlDataSyms());
@@ -350,11 +351,10 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
     for (size_t i = 0; i < this->cfg_->UeAntNum(); i++) {
       std::vector<complex_float> pilots_f_ue(
           this->cfg_->OfdmCaNum());  // Zeroed
-      size_t step_size = this->cfg_->GroupPilotSc() ?
-                         this->cfg_->PilotScGroupSize() : 1;
+      size_t step_size =
+          this->cfg_->GroupPilotSc() ? this->cfg_->PilotScGroupSize() : 1;
       for (size_t j = this->cfg_->OfdmDataStart();
-           j < this->cfg_->OfdmDataStop();
-           j += step_size) {
+           j < this->cfg_->OfdmDataStop(); j += step_size) {
         pilots_f_ue.at(i + j) = pilot_fd.at(i + j);
       }
       // Load pilots
