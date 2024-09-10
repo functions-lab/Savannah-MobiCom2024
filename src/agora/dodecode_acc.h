@@ -64,19 +64,6 @@
 #define SYNC_START 1
 #define MAX_DEQUEUE_TRIAL 1000000
 
-
-// struct rte_bbdev_dec_op {
-// 	/** Status of operation that was performed */
-// 	int status;
-// 	/** Mempool which op instance is in */
-// 	struct rte_mempool *mempool;
-// 	/** Opaque pointer for user data */
-// 	void *opaque_data;
-// 	union {
-// 		/** Contains LDPC decoder specific parameters */
-// 		struct rte_bbdev_op_ldpc_dec ldpc_dec;
-// 	};
-// };
 class DoDecode_ACC : public Doer {
  public:
   DoDecode_ACC(
@@ -126,10 +113,6 @@ class DoDecode_ACC : public Doer {
   struct rte_mbuf* in_mbuf;
   struct rte_mbuf* out_mbuf;
 
-  // size_t num_ul_syms;
-  // std::vector<rte_bbdev_dec_op* > ref_dec_op;
-  // std::vector<rte_bbdev_dec_op* > ops_deq;
-  
   struct rte_bbdev_dec_op* ref_dec_op[64];
   struct rte_bbdev_dec_op* ops_deq[64];
 
@@ -139,15 +122,6 @@ class DoDecode_ACC : public Doer {
   rte_mbuf* input_pkts_burst[54];
   rte_mbuf* output_pkts_burst[54];
   rte_mempool* mbuf_pool;
-
-//     static inline void
-// rte_bbdev_dec_op_free_bulk(struct rte_bbdev_dec_op **ops, unsigned int num_ops)
-// {
-// 	if (num_ops > 0)
-// 		rte_mempool_put_bulk(ops[0]->mempool, (void **)ops, num_ops);
-// }
-  // rte_mbuf *in_m_head;
-  // rte_mbuf *out_m_head;
 };
 
 #endif  // DODECODE_ACC_H_
