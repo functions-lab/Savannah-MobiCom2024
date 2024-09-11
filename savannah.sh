@@ -1,14 +1,17 @@
 #!/bin/bash
 
-# This script runs the Agora in RRU mode with USRP.
-#
-# Copyright 2023 @cstandy
-#
-# This script is used to test if the code can run.
-# Thus, it does not look into if the processing is correct, nor is it meaningful
-# to read the output numbers.
-# What matters is the execution flow.
-# The script will direct the output to a log file with a timestamp.
+################################################################################
+# Script Name: savannah.sh
+# Description: This script is the entry point of Savannah. It is used to build,
+#              and run the project. The script can also generate data for the
+#              transmission. The transmission involves base station (BS, the
+#              main program) and the usre equipment (UE). The script can run
+#              the BS and UE in simulation mode or radio mode. It can also read
+#              the log of the latest test run. For detailed usage, use -h or
+#              --help.
+#              The script will direct the output to a log file with a timestamp.
+# Author     : @cstandy
+################################################################################
 
 ################
 # Path & Param
@@ -35,7 +38,7 @@ logfile=$logpath/$(date +"%Y-%m-%d_%H-%M-%S").log
 
 # Function to display help
 function display_help {
-    echo "Usage: ./mvp_test.sh [option] [mode] [previlege]"
+    echo "Usage: ./savannah.sh [option] [mode] [previlege]"
     echo ""
     echo "Options:"
     echo "  -b, --build   - Build the project"
@@ -58,16 +61,16 @@ function display_help {
     echo "  -r, --root    - Run the command with root (sudo) privilege"
     echo ""
     echo "Common usage:"
-    echo "./mvp_test.sh -a      : config cmake to use ACC100"
-    echo "./mvp_test.sh -f      : config cmake to use FlexRAN"
-    echo "./mvp_test.sh -b -r   : build in RRU mode"
-    echo "./mvp_test.sh -b -s   : build in Simulation mode"
-    echo "./mvp_test.sh -x -s -r: run bs in sim mode with root privilege"
-    echo "./mvp_test.sh -x -r -r: run bs in rru mode with root privilege"
-    echo "./mvp_test.sh -u -s   : run ue in sim mode"
-    echo "./mvp_test.sh -u -r   : run ue in rru mode"
-    echo "./mvp_test.sh -g -s   : generate data for sim mode"
-    echo "./mvp_test.sh -g -r   : generate data for rru mode"
+    echo "./savannah.sh -a      : config cmake to use ACC100"
+    echo "./savannah.sh -f      : config cmake to use FlexRAN"
+    echo "./savannah.sh -b -r   : build in RRU mode"
+    echo "./savannah.sh -b -s   : build in Simulation mode"
+    echo "./savannah.sh -x -s -r: run bs in sim mode with root privilege"
+    echo "./savannah.sh -x -r -r: run bs in rru mode with root privilege"
+    echo "./savannah.sh -u -s   : run ue in sim mode"
+    echo "./savannah.sh -u -r   : run ue in rru mode"
+    echo "./savannah.sh -g -s   : generate data for sim mode"
+    echo "./savannah.sh -g -r   : generate data for rru mode"
 }
 
 # Function to build the project

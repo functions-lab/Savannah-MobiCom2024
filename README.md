@@ -1,5 +1,101 @@
 [![Build Status](https://falcon.ecg.rice.edu:443/buildStatus/icon?job=github_public_agora%2Fsavannah-main)](https://falcon.ecg.rice.edu:443/job/github_public_agora/job/savannah-main/)
 
+# Savannah
+
+Savannah is a real-time baseband processing framework built on top of [Agora](#Agora).
+Here lists the major differeces:
+
+* Savannah features small MIMO dimension in 5G FR2 when Agora features massive MIMO in 5G FR1.
+* Savannah introduces ACC100 accelerator for LDPC decoding and single-core processing (Savannah-sc) while Agora features multi-thread model with FlexRAN decoder.
+* Savannah adopts vectorized matrix operation on top of Agora's multi-thread model (Savannah-mc).
+
+## Requirement
+
+Savannah requires the following hardware components and software setup.
+
+* Same operating system setup as Agora.
+* Intel ACC100 accelerator card ([Unit test tutorial](BBDev_testcase.md)).
+* AVX-512 supported Intel Xeon CPUs for optimal performance.
+
+For over-the-air (OTA) evaluation, radio front-ends are required.
+We recommend using COSMOS Testbed for IBM 28 GHz phased array antenna module (PAAM).
+For a local testbed, we recommend using USRP X310 SDR to setup FR2 parameters with sub-7 GHz antennas for radio frequency.
+
+## Configurations
+
+Most of the architectural options of Savannah are set with CMake for compilation; while the communication parameters can be adjusted in `.json` config files.
+
+### CMake Options
+
+CMake options selects the thread models, arithmetic libraries, LDPC decoder, etc.
+Below are Savannah-related variables and their available and desired values.
+
+| CMake Variables  | Available Options                   | Savannah-sc | Savannah-mc |
+| ---------------- | ----------------------------------- | ----------- | ----------- |
+| `TIME_EXCLUSIVE` | True , False                        | True        | True        |
+| `LDPC_TYPE`      | FlexRAN, ACC100                     | ACC100      | FlexRAN     |
+| `LDPC_ENQ_BULK`  | True, False                         | False       | False       |
+| `MAT_OP_TYPE`    | ARMA_CUBE <br> ARMA_VEC <br> AVX512 | AVX512      | AVX512      |
+| `SINGLE_THREAD`  | True, False                         | True        | False       |
+
+In `<savannah folder>/build`, use `cmake .. -D<VAR>=<OPTION>` to configure.
+
+* `TIME_EXCLUSIVE` should be always true to ensure the best performance by avoiding unnecessary recording.
+* `LDPC_TYPE` allows users to select the LDPC decoder: FlexRAN (software) vs. ACC100 (hardware).
+* `LDPC_ENQ_BULK` determines whether OFDM symbols are delayed to push into the ACC100 accelerator at the last uplink symbol for a frame.
+* `MAT_OP_TYPE` selects the compute scheme for vectorized matrix operations. Only effective when `small_mimo_acc` is enabled in `.json` config. `AVX512` is always recommended for performance if supported. `ARMA_VEC` is the vectorized option wrapped by Armadillo, and thus is recommended when avx512 is unavailable. `ARMA_CUBE` is for research/experiment evaluation only and does not have good performance as expected.
+* `SINGLE_THREAD` defines if Savannah merges the only worker thread and the main scheduling thread. When it is set to True, the worker thread count is limited to 1 and is merged with the main thread. When it is set to False, Savannah acts as a multi-thread model as Agora, and has a total thread count is woker threads + 1 (scheduling, main thread).
+
+### JSON Options
+
+The default json script for emulated RU locates in `<savannah folder>/files/config/ci/tddconfig-sim-ul-fr2.json`, and for real RU locates in `<savannah folder>/files/config/examples/ul-usrp.json`.
+
+To enable vectorized matrix operation, set `small_mimo_acc` to `true`.
+Note that when `"small_mimo_acc": true`, the `beam_block_size` field is neglected.
+Also, note that `worker_thread_num` must be 1 when `SINGLE_THREAD=True` in CMake for Savannah-sc; otherwise, it can be any positive integer.
+
+The configuration is json script are traffic related.
+We can set up MIMO dimension (`base_radio_num`/`ue_radio_num`), FFT size (`fft_size`), number of data subcarriers (`ofdm_data_num`), modulation scheme (`modulation`), LDPC code rate (`code_rate`), and sampling rate (`sample_rate`).
+
+## Run Script
+
+We provide `savannah.sh` as an unified control to compile, generate data, and run Savannah, in both emulated-RU mode (simulation) and real-RU mode (RRU).
+
+Here we lists the usage to run Savannah-sc and Savannah-mc in emulated-RU mode.
+Please use `savannah.sh -h` to read for more details.
+
+### Run with Emulated-RU
+
+Run the base station (BS, main program) in one terminal and the UE in the other terminal.
+```bash
+# BS: -x: execution, -s: simulation mode, -r: root privilege, required for ACC100
+$ savannah.sh -x -s -r
+```
+```bash
+# UE: -u: UE, -s: simulation mode
+$ savannah.sh -u -s
+```
+
+### Run with Real-RU
+
+Run the base station (BS, main program) in one terminal and the UE in the other terminal.
+```bash
+# BS: -x: execution, -r: rru mode, -r: root privilege, required for ACC100
+$ savannah.sh -x -r -r
+```
+```bash
+# UE: -u: UE, -s: rru mode
+$ savannah.sh -u -r
+```
+
+## Output
+
+`savannah.sh` will automatically record `stdout` to `log/` and marked filename with a timestamp.
+Please create `<savannah folder>/log/` folder for this.
+
+---
+# Agora
+
 Agora is a complete software realization of real-time massive MIMO baseband processing. 
 
 Some highlights:
