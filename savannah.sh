@@ -26,7 +26,7 @@ ue_exe=$sim_ue_exe
 ue_arg=
 data_gen_exe=./build/data_generator
 
-sim_config=./files/config/ci/tddconfig-sim-ul-fr2.json
+sim_config=./files/config/ci/tddconfig-sim-ul-fr2-mu3-100Mhz.json
 rru_config=./files/config/examples/ul-usrp.json
 config=$sim_config
 logpath=./log
