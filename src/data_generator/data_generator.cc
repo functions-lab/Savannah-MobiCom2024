@@ -17,6 +17,23 @@
 #include "phy_ldpc_decoder_5gnr.h"
 #include "scrambler.h"
 
+#if defined(USE_ACC100_ENCODE)
+#include "concurrent_queue_wrapper.h"
+#include "rte_bbdev.h"
+#include "rte_bbdev_op.h"
+#include "rte_bus_vdev.h"
+#define GET_SOCKET(socket_id) (((socket_id) == SOCKET_ID_ANY) ? 0 : (socket_id))
+#define MAX_RX_BYTE_SIZE 1500
+#define CACHE_SIZE 128
+#define NUM_QUEUES 4
+#define LCORE_ID 36
+#define NUM_ELEMENTS_IN_POOL 2047
+#define NUM_ELEMENTS_IN_MEMPOOL 16383
+#define DATA_ROOM_SIZE 45488
+#define MAX_DEQUEUE_TRIAL 1000000
+
+#endif
+
 static constexpr bool kPrintDebugCSI = false;
 static constexpr bool kDebugPrintRxData = false;
 static constexpr bool kPrintDlTxData = false;
@@ -42,6 +59,33 @@ static float RandFloatFromShort(float min, float max) {
   return rand_val;
 }
 
+void print_casted_uint8_hex_1(const uint8_t* array, size_t totalByteLength) {
+  for (size_t i = 0; i < totalByteLength; i++) {
+    // Cast each int8_t to uint8_t and print as two-digit hexadecimal
+    printf("%02X ", (uint8_t)array[i]);
+  }
+  printf("\n");  // Add a newline for readability
+}
+
+#if defined(USE_ACC100_ENCODE)
+int allocate_buffers_on_socket(struct rte_bbdev_op_data **buffers,
+                                             const int len, const int socket) {
+  int i;
+  *buffers = static_cast<struct rte_bbdev_op_data *>(
+      rte_zmalloc_socket(NULL, len, 0, socket));
+  if (*buffers == NULL) {
+    printf("WARNING: Failed to allocate op_data on socket %d\n", socket);
+    /* try to allocate memory on other detected sockets */
+    for (i = 0; i < socket; i++) {
+      *buffers = static_cast<struct rte_bbdev_op_data *>(
+          rte_zmalloc_socket(NULL, len, 0, i));
+      if (*buffers != NULL) break;
+    }
+  }
+  return (*buffers == NULL) ? TEST_FAILED : TEST_SUCCESS;
+}
+#endif
+
 DataGenerator::DataGenerator(Config* cfg, uint64_t seed, Profile profile)
     : cfg_(cfg), seed_(seed), profile_(profile) {
   if (seed != 0) {
@@ -58,6 +102,145 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
   std::unique_ptr<DoCRC> crc_obj = std::make_unique<DoCRC>();
   const size_t ul_cb_bytes = cfg_->NumBytesPerCb(Direction::kUplink);
   LDPCconfig ul_ldpc_config = this->cfg_->LdpcConfig(Direction::kUplink);
+  const size_t symbol_blocks =
+    ul_ldpc_config.NumBlocksInSymbol() * this->cfg_->UeAntNum();
+  const size_t num_ul_codeblocks =
+      this->cfg_->Frame().NumUlDataSyms() * symbol_blocks;
+  AGORA_LOG_SYMBOL("Total number of ul blocks: %zu\n", num_ul_codeblocks);
+
+#if defined(USE_ACC100_ENCODE)
+  std::string core_list = std::to_string(LCORE_ID);  // this is hard set to core 36
+  const char *rte_argv[] = {"txrx",        "-l",           core_list.c_str(),
+                            "--log-level", "lib.eal:info", nullptr};
+  int rte_argc = static_cast<int>(sizeof(rte_argv) / sizeof(rte_argv[0])) - 1;
+
+  // Initialize DPDK environment
+  int ret = rte_eal_init(rte_argc, const_cast<char **>(rte_argv));
+  RtAssert(
+      ret >= 0,
+      "Failed to initialize DPDK.  Are you running with root permissions?");
+
+  int nb_bbdevs = rte_bbdev_count();
+  std::cout << "num bbdevs: " << nb_bbdevs << std::endl;
+    if (nb_bbdevs == 0) rte_exit(EXIT_FAILURE, "No bbdevs detected!\n");
+  dev_id = 0;
+  struct rte_bbdev_info info;
+  // rte_bbdev_info_get(dev_id, &info);
+  rte_bbdev_intr_enable(dev_id);
+  rte_bbdev_info_get(dev_id, &info);
+
+  bbdev_op_pool =
+      rte_bbdev_op_pool_create("bbdev_op_pool_enc", RTE_BBDEV_OP_LDPC_ENC,
+                               NB_MBUF, CACHE_SIZE , rte_socket_id());
+  ret = rte_bbdev_setup_queues(dev_id, NUM_QUEUES, info.socket_id);
+
+  if (ret < 0) {
+    printf("rte_bbdev_setup_queues(%u, %u, %d) ret %i\n", dev_id, NUM_QUEUES,
+           rte_socket_id(), ret);
+  }
+
+  ret = rte_bbdev_intr_enable(dev_id);
+
+  struct rte_bbdev_queue_conf qconf;
+  qconf.socket = info.socket_id;
+  qconf.queue_size = info.drv.queue_size_lim;
+  qconf.op_type = RTE_BBDEV_OP_LDPC_ENC;
+  qconf.priority = 0;
+
+  std::cout << "device id is: " << static_cast<int>(dev_id) << std::endl;
+
+  for (int q_id = 0; q_id < NUM_QUEUES; q_id++) {
+    /* Configure all queues belonging to this bbdev device */
+    ret = rte_bbdev_queue_configure(dev_id, q_id, &qconf);
+    if (ret < 0)
+      rte_exit(EXIT_FAILURE,
+               "ERROR(%d): BBDEV %u queue %u not configured properly\n", ret,
+               dev_id, q_id);
+  }
+
+  ret = rte_bbdev_start(dev_id);
+  int socket_id = GET_SOCKET(info.socket_id);
+
+
+  ops_mp = rte_bbdev_op_pool_create("RTE_BBDEV_OP_LDPC_ENC_poo",
+                                    RTE_BBDEV_OP_LDPC_ENC, NUM_ELEMENTS_IN_POOL, OPS_CACHE_SIZE,
+                                    socket_id);
+  if (ops_mp == nullptr) {
+    std::cerr << "Error: Failed to create memory pool for bbdev operations."
+              << std::endl;
+  } else {
+    std::cout << "Memory pool for bbdev operations created successfully."
+              << std::endl;
+  }
+
+    in_mbuf_pool = rte_pktmbuf_pool_create("in_pool_0", NUM_ELEMENTS_IN_MEMPOOL, 0, 0, DATA_ROOM_SIZE, 0);
+  out_mbuf_pool =
+      rte_pktmbuf_pool_create("hard_out_pool_0", NUM_ELEMENTS_IN_MEMPOOL, 0, 0, DATA_ROOM_SIZE, 0);
+
+  if (in_mbuf_pool == nullptr or out_mbuf_pool == nullptr) {
+    std::cerr << "Error: Unable to create mbuf pool: "
+              << rte_strerror(rte_errno) << std::endl;
+  }
+
+  int rte_alloc_ref = rte_bbdev_enc_op_alloc_bulk(ops_mp, ref_enc_op, num_ul_codeblocks);
+  if (rte_alloc_ref != TEST_SUCCESS ) {
+    rte_exit(EXIT_FAILURE, "Failed to alloc bulk\n");
+  }
+
+  const struct rte_bbdev_op_cap *cap = info.drv.capabilities;
+  const struct rte_bbdev_op_cap *capabilities = NULL;
+  rte_bbdev_info_get(dev_id, &info);
+  for (unsigned int i = 0; cap->type != RTE_BBDEV_OP_NONE; ++i, ++cap) {
+    std::cout << "cap is: " << cap->type << std::endl;
+    if (cap->type == RTE_BBDEV_OP_LDPC_ENC) {
+      capabilities = cap;
+      std::cout << "capability is being set to: " << capabilities->type
+                << std::endl;
+      break;
+    }
+  }
+
+  inputs =
+      (struct rte_bbdev_op_data **)malloc(sizeof(struct rte_bbdev_op_data *));
+  hard_outputs =
+      (struct rte_bbdev_op_data **)malloc(sizeof(struct rte_bbdev_op_data *));
+
+  int ret_socket_in = allocate_buffers_on_socket(
+      inputs, 1 * sizeof(struct rte_bbdev_op_data), 0);
+  int ret_socket_hard_out = allocate_buffers_on_socket(
+      hard_outputs, 1 * sizeof(struct rte_bbdev_op_data), 0);
+
+  if (ret_socket_in != TEST_SUCCESS || ret_socket_hard_out != TEST_SUCCESS) {
+    rte_exit(EXIT_FAILURE, "Failed to allocate socket\n");
+  }
+
+  // ldpc_llr_decimals = capabilities->cap.ldpc_enc.llr_decimals;
+  // ldpc_llr_size = capabilities->cap.ldpc_dec.llr_size;
+  // ldpc_cap_flags = capabilities->cap.ldpc_dec.capability_flags;
+
+  min_alignment = info.drv.min_alignment;
+
+  q_m = cfg_->ModOrderBits(Direction::kUplink);
+  e = ul_ldpc_config.NumCbCodewLen();
+
+  for (int i = 0; i < num_ul_codeblocks; i++) {
+  // ref_dec_op[i]->ldpc_dec.op_flags += RTE_BBDEV_LDPC_ITERATION_STOP_ENABLE;
+    ref_enc_op[i]->ldpc_enc.basegraph = (uint8_t)ul_ldpc_config.BaseGraph();
+    ref_enc_op[i]->ldpc_enc.z_c = (uint16_t)ul_ldpc_config.ExpansionFactor();
+    ref_enc_op[i]->ldpc_enc.n_filler = (uint16_t)0;
+    ref_enc_op[i]->ldpc_enc.rv_index = (uint8_t)0;
+    ref_enc_op[i]->ldpc_enc.n_cb = (uint16_t)ul_ldpc_config.NumCbCodewLen();
+    // std::cout << "n_cb is: " << (uint16_t)ldpc_config.NumCbCodewLen() <<  std::endl;
+    ref_enc_op[i]->ldpc_enc.q_m = (uint8_t)q_m;
+    ref_enc_op[i]->ldpc_enc.code_block_mode = (uint8_t)1;
+    ref_enc_op[i]->ldpc_enc.cb_params.e = (uint32_t)e;
+    // std::cout << "e is: " << (uint32_t)e <<  std::endl;
+    ref_enc_op[i]->opaque_data = (void *)(uintptr_t)i;
+  }
+  std::cout << "" << std::endl;
+  AGORA_LOG_INFO("rte_pktmbuf_alloc successful\n");
+
+#endif
 
   // Step 1: Generate the information buffers (MAC Packets) and LDPC-encoded
   // buffers for uplink
@@ -124,14 +307,9 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
       }
     }
 
-    const size_t symbol_blocks =
-        ul_ldpc_config.NumBlocksInSymbol() * this->cfg_->UeAntNum();
-    const size_t num_ul_codeblocks =
-        this->cfg_->Frame().NumUlDataSyms() * symbol_blocks;
-    AGORA_LOG_SYMBOL("Total number of ul blocks: %zu\n", num_ul_codeblocks);
-
     std::vector<std::vector<int8_t>> ul_information(num_ul_codeblocks);
     std::vector<std::vector<int8_t>> ul_encoded_codewords(num_ul_codeblocks);
+    const size_t encoded_bytes = BitsToBytes(ul_ldpc_config.NumCbCodewLen());
     for (size_t cb = 0; cb < num_ul_codeblocks; cb++) {
       // i : symbol -> ue -> cb (repeat)
       size_t sym_id = cb / (symbol_blocks);
@@ -150,9 +328,16 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
       int8_t* cb_start = &ul_mac_info.at(ue_id).at(ue_cb_cnt * ul_cb_bytes);
       ul_information.at(cb) =
           std::vector<int8_t>(cb_start, cb_start + ul_cb_bytes);
+
+#if defined(USE_ACC100_ENCODE)
+      ul_encoded_codewords.at(cb) = DataGenerator::GenCodeblock_ACC100(
+          ul_ldpc_config, &ul_information.at(cb).at(0), ul_cb_bytes,
+          this->cfg_->ScrambleEnabled(), cb);
+#else
       ul_encoded_codewords.at(cb) = DataGenerator::GenCodeblock(
           ul_ldpc_config, &ul_information.at(cb).at(0), ul_cb_bytes,
           this->cfg_->ScrambleEnabled());
+#endif
     }
 
     // the following generated file is used as a reference to compare BLER.
@@ -194,6 +379,17 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
           for (size_t i = 0; i < ul_cb_bytes; i++) {
             std::printf("%02X ",
                         static_cast<uint8_t>(ul_information.at(n).at(i)));
+          }
+          std::printf("\n");
+        }
+
+        std::printf("Encoded Uplink information bytes\n");
+        for (size_t n = 0; n < num_ul_codeblocks; n++) {
+          std::printf("Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
+                      n % this->cfg_->UeAntNum());
+          for (size_t i = 0; i < encoded_bytes; i++) {
+            std::printf("%02X ",
+                        static_cast<uint8_t>(ul_encoded_codewords.at(n).at(i)));
           }
           std::printf("\n");
         }
@@ -968,6 +1164,7 @@ std::vector<int8_t> DataGenerator::GenCodeblock(const LDPCconfig& lc,
       LdpcEncodingParityBufSize(lc.BaseGraph(), lc.ExpansionFactor()));
 
   const size_t encoded_bytes = BitsToBytes(lc.NumCbCodewLen());
+  std::cout<<"Encoded bytes are: "  << encoded_bytes << std::endl;
   std::vector<int8_t> encoded_codeword(encoded_bytes, 0);
 
   LdpcEncodeHelper(lc.BaseGraph(), lc.ExpansionFactor(), lc.NumRows(),
@@ -975,6 +1172,104 @@ std::vector<int8_t> DataGenerator::GenCodeblock(const LDPCconfig& lc,
                    reinterpret_cast<int8_t*>(scramble_buffer.data()));
   return encoded_codeword;
 }
+
+#if defined(USE_ACC100_ENCODE)
+/**
+   * @brief                        Generate the encoded bit sequence for one
+   * code block for the active LDPC configuration from the input bit sequence
+   *
+   * @param  input_ptr             The input bit sequence to be encoded
+   * @param  encoded_codeword      The generated encoded codeword bit sequence
+   */
+std::vector<int8_t> DataGenerator::GenCodeblock_ACC100(const LDPCconfig& lc,
+                                                const int8_t* input_ptr,
+                                                size_t input_size,
+                                                bool scramble_enabled, size_t enq_index) {
+
+  struct rte_mbuf *m_head;
+  struct rte_mbuf *m_head_out;
+
+  std::vector<int8_t> scramble_buffer(input_ptr, input_ptr + input_size);
+  if (scramble_enabled) {
+    auto scrambler = std::make_unique<AgoraScrambler::Scrambler>();
+    scrambler->Scramble(scramble_buffer.data(), input_size);
+  }
+
+  std::vector<int8_t> parity;
+  parity.resize(
+      LdpcEncodingParityBufSize(lc.BaseGraph(), lc.ExpansionFactor()));
+
+  const size_t encoded_bytes = BitsToBytes(lc.NumCbCodewLen());
+  std::cout<<"Encoded bytes are: "  << encoded_bytes << std::endl;
+  std::vector<int8_t> encoded_codeword(encoded_bytes, 0);
+
+  char *data;
+  struct rte_bbdev_op_data *bufs = *inputs;
+
+  m_head = rte_pktmbuf_alloc(in_mbuf_pool);
+
+  bufs[0].data = m_head;
+  bufs[0].offset = 0;
+  bufs[0].length = 0;
+
+  data = rte_pktmbuf_append(m_head, input_size);
+  rte_memcpy(data, input_ptr, input_size);
+  bufs[0].length += input_size;
+
+  rte_bbdev_op_data *bufs_out = *hard_outputs;
+  m_head_out = rte_pktmbuf_alloc(out_mbuf_pool);
+
+  bufs_out[0].data = m_head_out;
+  bufs_out[0].offset = 0;
+  bufs_out[0].length = 0;
+
+  char *data_out = rte_pktmbuf_append(m_head_out, encoded_bytes);
+  rte_memcpy(data_out, encoded_codeword.data(), encoded_bytes);
+  bufs_out[0].length += encoded_bytes;
+
+  ref_enc_op[enq_index]->ldpc_enc.input = *inputs[0];
+  ref_enc_op[enq_index]->ldpc_enc.output = *hard_outputs[0];
+
+  rte_pktmbuf_free(m_head);
+  rte_pktmbuf_free(m_head_out);
+
+  std::cout<< "enq num is: " << enq << std::endl;
+  enq += rte_bbdev_enqueue_ldpc_enc_ops(0, 0, &ref_enc_op[enq], 1);
+  std::cout<< "enq num is: " << enq << std::endl;
+  deq += rte_bbdev_dequeue_ldpc_enc_ops(0, 0, &ops_deq[deq], enq - deq);
+
+  int retry_count = 0;
+
+  while (deq < enq && retry_count < MAX_DEQUEUE_TRIAL) {
+    deq += rte_bbdev_dequeue_ldpc_enc_ops(0, 0, &ops_deq[deq], enq - deq);
+  }
+  std::cout<< "deq num is: " << deq << std::endl;
+
+  struct rte_bbdev_op_ldpc_enc *ops_td;
+  struct rte_bbdev_op_data *hard_output;
+  struct rte_mbuf *temp_m;
+  size_t offset = 0;
+
+  ops_td = &ops_deq[enq_index]->ldpc_enc;
+  hard_output = &ops_td->output;
+  temp_m = hard_output->data;
+  uint8_t* temp_data = rte_pktmbuf_mtod(temp_m, uint8_t*);
+
+  if (kPrintUplinkInformationBytes){
+    std::cout << "CB size = " << encoded_bytes << " bytes\n";
+    std::cout << "Content of the CB (in uint32):\n";
+    print_casted_uint8_hex_1(temp_data, encoded_bytes);
+    // print_uint32(temp_data, num_bytes_per_cb);
+    std::cout << std::endl << std::endl;
+  }
+
+  encoded_codeword.assign(temp_data, temp_data + encoded_bytes);
+    // LdpcEncodeHelper(lc.BaseGraph(), lc.ExpansionFactor(), lc.NumRows(),
+  //                  &encoded_codeword.at(0), &parity.at(0),
+  //    
+  return encoded_codeword;
+}
+#endif
 
 /**
    * @brief Return the output of modulating the encoded codeword
