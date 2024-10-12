@@ -38,12 +38,13 @@ static constexpr bool kPrintDebugCSI = false;
 static constexpr bool kDebugPrintRxData = false;
 static constexpr bool kPrintDlTxData = false;
 static constexpr bool kPrintDlModData = false;
-static constexpr bool kPrintUplinkInformationBytes = false;
+static constexpr bool kPrintUplinkInformationBytes = true;
 static constexpr bool kPrintDownlinkInformationBytes = false;
 
 ///Output files
 static const std::string kUlDataPrefix = "orig_ul_data_";
 static const std::string kUlLdpcDataPrefix = "LDPC_orig_ul_data_";
+static const std::string kUlLdpcEncodedPrefix = "LDPC_ul_encoded_";
 static const std::string kUlLdpcACC100DataPrefix = "LDPC_ACC100_orig_ul_data_";
 static const std::string kDlDataPrefix = "orig_dl_data_";
 static const std::string kDlLdpcDataPrefix = "LDPC_orig_dl_data_";
@@ -309,6 +310,7 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
 
     std::vector<std::vector<int8_t>> ul_information(num_ul_codeblocks);
     std::vector<std::vector<int8_t>> ul_encoded_codewords(num_ul_codeblocks);
+    std::vector<std::vector<int8_t>> ul_encoded_codewords_flexRAN(num_ul_codeblocks);
     const size_t encoded_bytes = BitsToBytes(ul_ldpc_config.NumCbCodewLen());
     for (size_t cb = 0; cb < num_ul_codeblocks; cb++) {
       // i : symbol -> ue -> cb (repeat)
@@ -328,6 +330,9 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
       int8_t* cb_start = &ul_mac_info.at(ue_id).at(ue_cb_cnt * ul_cb_bytes);
       ul_information.at(cb) =
           std::vector<int8_t>(cb_start, cb_start + ul_cb_bytes);
+      ul_encoded_codewords_flexRAN.at(cb) = DataGenerator::GenCodeblock(
+          ul_ldpc_config, &ul_information.at(cb).at(0), ul_cb_bytes,
+          this->cfg_->ScrambleEnabled());
 
 #if defined(USE_ACC100_ENCODE)
       ul_encoded_codewords.at(cb) = DataGenerator::GenCodeblock_ACC100(
@@ -371,6 +376,34 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
         }
       }
 
+      const std::string filename_input_encoded =
+          directory + kUlLdpcEncodedPrefix +
+          std::to_string(this->cfg_->OfdmCaNum()) + "_ant" +
+          std::to_string(this->cfg_->UeAntNum()) + ".bin";
+      AGORA_LOG_INFO("Saving encoded uplink data (using LDPC) to %s\n",
+                     filename_input_encoded.c_str());
+      auto* fp_input_encoded = std::fopen(filename_input_encoded.c_str(), "wb");
+      if (fp_input_encoded == nullptr) {
+        AGORA_LOG_ERROR("Failed to create file %s\n", filename_input_encoded.c_str());
+        throw std::runtime_error("Failed to create file" + filename_input_encoded);
+      } else {
+        for (size_t i = 0; i < num_ul_codeblocks; i++) {
+          const auto write_status = std::fwrite(
+              reinterpret_cast<uint8_t*>(&ul_encoded_codewords.at(i).at(0)),
+              sizeof(uint8_t), encoded_bytes, fp_input_encoded);
+          if (write_status != encoded_bytes) {
+            AGORA_LOG_ERROR("Wrote %zu out of %zu to file %s\n", write_status,
+                            encoded_bytes, filename_input_encoded.c_str());
+            throw std::runtime_error("Failed to write to file" +
+                                     filename_input_encoded);
+          }
+        }
+        const auto close_status_encoded = std::fclose(fp_input_encoded);
+        if (close_status_encoded != 0) {
+          throw std::runtime_error("Failed to close file" + filename_input_encoded);
+        }
+      }
+
       if (kPrintUplinkInformationBytes) {
         std::printf("Uplink information bytes\n");
         for (size_t n = 0; n < num_ul_codeblocks; n++) {
@@ -385,11 +418,22 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
 
         std::printf("Encoded Uplink information bytes\n");
         for (size_t n = 0; n < num_ul_codeblocks; n++) {
-          std::printf("Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
+          std::printf("encoded bytes Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
                       n % this->cfg_->UeAntNum());
           for (size_t i = 0; i < encoded_bytes; i++) {
             std::printf("%02X ",
                         static_cast<uint8_t>(ul_encoded_codewords.at(n).at(i)));
+          }
+          std::printf("\n");
+        }
+
+        std::printf("Encoded Uplink information bytes for FlexRAN is: \n");
+        for (size_t n = 0; n < num_ul_codeblocks; n++) {
+          std::printf("FlexRAN encoded bytes Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
+                      n % this->cfg_->UeAntNum());
+          for (size_t i = 0; i < encoded_bytes; i++) {
+            std::printf("%02X ",
+                        static_cast<uint8_t>(ul_encoded_codewords_flexRAN.at(n).at(i)));
           }
           std::printf("\n");
         }
@@ -1213,7 +1257,7 @@ std::vector<int8_t> DataGenerator::GenCodeblock_ACC100(const LDPCconfig& lc,
   bufs[0].length = 0;
 
   data = rte_pktmbuf_append(m_head, input_size);
-  rte_memcpy(data, input_ptr, input_size);
+  rte_memcpy(data, scramble_buffer.data(), input_size);
   bufs[0].length += input_size;
 
   rte_bbdev_op_data *bufs_out = *hard_outputs;

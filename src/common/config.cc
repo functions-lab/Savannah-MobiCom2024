@@ -44,6 +44,9 @@ static const std::string kExperimentFilepath =
     TOSTRING(PROJECT_DIRECTORY) "/files/experiment/";
 static const std::string kUlDataFilePrefix =
     kExperimentFilepath + "LDPC_orig_ul_data_";
+static const std::string kUlEncodedFilePrefix =
+    kExperimentFilepath + "LDPC_ul_encoded_";
+
 static const std::string kDlDataFilePrefix =
     kExperimentFilepath + "LDPC_orig_dl_data_";
 static const std::string kUlDataFreqPrefix = kExperimentFilepath + "ul_data_f_";
@@ -558,6 +561,7 @@ Config::Config(std::string jsonfilename)
   // client_ul_pilot_sym uses the first x 'U' symbols for downlink channel
   // estimation for each user.
   size_t client_ul_pilot_syms = tdd_conf.value("client_ul_pilot_syms", 0);
+  num_client_ul_pilot = client_ul_pilot_syms;
   RtAssert(client_ul_pilot_syms <= frame_.NumULSyms(),
            "Number of UL pilot symbol exceeds number of UL symbols!");
 
@@ -1371,37 +1375,84 @@ void Config::GenData() {
   auto* ul_temp_parity_buffer = new int8_t[LdpcEncodingParityBufSize(
       this->ul_ldpc_config_.BaseGraph(),
       this->ul_ldpc_config_.ExpansionFactor())];
+  
+  const std::string ul_encoded_data_file =
+    kUlEncodedFilePrefix + std::to_string(this->ofdm_ca_num_) + "_ant" +
+    std::to_string(this->ue_ant_total_) + ".bin";
+  std::ifstream infile(ul_encoded_data_file, std::ios::binary);  // Open the binary file
+  if (!infile) {
+      std::cerr << "Failed to open file!" << std::endl;
+      return;
+  }
 
+  int8_t* temp_ul = NULL; 
   for (size_t i = 0; i < frame_.NumULSyms(); i++) {
     for (size_t j = 0; j < ue_ant_num_; j++) {
+      std::cout<<"number of blocks in symbol is: "<<ul_ldpc_config_.NumBlocksInSymbol()<<std::endl;
       for (size_t k = 0; k < ul_ldpc_config_.NumBlocksInSymbol(); k++) {
         int8_t* coded_bits_ptr =
             ul_encoded_bits[i * ul_num_blocks_per_symbol +
                             j * ul_ldpc_config_.NumBlocksInSymbol() + k];
-
         if (scramble_enabled_) {
           scrambler->Scramble(
               ul_scramble_buffer.data(),
               GetInfoBits(ul_bits_, Direction::kUplink, i, j, k),
               ul_num_bytes_per_cb_);
+          temp_ul = reinterpret_cast<int8_t*> (GetInfoBits(ul_bits_, Direction::kUplink, i, j, k));
           ldpc_input = reinterpret_cast<int8_t*>(ul_scramble_buffer.data());
         } else {
           ldpc_input = GetInfoBits(ul_bits_, Direction::kUplink, i, j, k);
         }
+
+        std::cout<<"LDPC input print original; symbol index is: "<<i<<std::endl;
+        for (size_t ii = 0; ii < ul_num_bytes_per_cb_; ii++) {
+          std::printf("%02X ", static_cast<uint8_t>(*(temp_ul + ii)));
+        }
+        std::printf("\n");
+
+        std::cout<<"LDPC input print after scramble; symbol index is: "<<i<<std::endl;
+        for (size_t ii = 0; ii < ul_num_bytes_per_cb_; ii++) {
+          std::printf("%02X ", static_cast<uint8_t>(*(ldpc_input + ii)));
+        }
+        std::printf("\n");
+
         //Clean padding
         if (ul_num_bytes_per_cb_ > 0) {
           std::memset(&ldpc_input[ul_num_bytes_per_cb_], 0u,
                       ul_num_padding_bytes_per_cb_);
         }
-        LdpcEncodeHelper(ul_ldpc_config_.BaseGraph(),
+        
+        if (i >= num_client_ul_pilot){
+          infile.read(reinterpret_cast<char*>(coded_bits_ptr), ul_encoded_bytes_per_block);
+          if (!infile) {
+            std::cerr << "Error reading from file!" << std::endl;
+            return;
+          }
+        } else{
+          LdpcEncodeHelper(ul_ldpc_config_.BaseGraph(),
                          ul_ldpc_config_.ExpansionFactor(),
                          ul_ldpc_config_.NumRows(), coded_bits_ptr,
                          ul_temp_parity_buffer, ldpc_input);
+        }
+
+        std::cout<<"Encoded bits; symbol index is: "<<i<<std::endl;
+
+        for (size_t ii = 0; ii < ul_encoded_bytes_per_block; ii++) {
+          std::printf("%02X ", static_cast<uint8_t>(*(coded_bits_ptr + ii)));
+        }
+        std::printf("\n");
+
         int8_t* mod_input_ptr =
             GetModBitsBuf(ul_mod_bits_, Direction::kUplink, 0, i, j, k);
         AdaptBitsForMod(reinterpret_cast<uint8_t*>(coded_bits_ptr),
                         reinterpret_cast<uint8_t*>(mod_input_ptr),
                         ul_encoded_bytes_per_block, ul_mod_order_bits_);
+        std::cout<<"mod_input; symbol index is: "<<i<<std::endl;
+        for (size_t ii = 0; ii < ofdm_data_num_; ii++) {
+          std::printf("%02X ", static_cast<uint8_t>(*(mod_input_ptr + ii)));
+        }
+        std::printf("\n");
+        std::printf("\n");
       }
     }
   }

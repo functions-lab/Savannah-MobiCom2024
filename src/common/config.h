@@ -663,6 +663,7 @@ class Config {
 
   // The total number of OFDM subcarriers, which is a power of two
   size_t ofdm_ca_num_;
+  size_t num_client_ul_pilot;
 
   // The number of cyclic prefix IQ samples. These are taken from the tail of
   // the time-domain OFDM samples and prepended to the beginning.
