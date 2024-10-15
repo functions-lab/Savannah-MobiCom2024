@@ -36,9 +36,10 @@
 
 static constexpr bool kPrintDebugCSI = false;
 static constexpr bool kDebugPrintRxData = false;
+static constexpr bool kPrintEncodedBytes = false;
 static constexpr bool kPrintDlTxData = false;
 static constexpr bool kPrintDlModData = false;
-static constexpr bool kPrintUplinkInformationBytes = true;
+static constexpr bool kPrintUplinkInformationBytes = false;
 static constexpr bool kPrintDownlinkInformationBytes = false;
 
 ///Output files
@@ -416,26 +417,28 @@ void DataGenerator::DoDataGeneration(const std::string& directory) {
           std::printf("\n");
         }
 
-        std::printf("Encoded Uplink information bytes\n");
-        for (size_t n = 0; n < num_ul_codeblocks; n++) {
-          std::printf("encoded bytes Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
-                      n % this->cfg_->UeAntNum());
-          for (size_t i = 0; i < encoded_bytes; i++) {
-            std::printf("%02X ",
-                        static_cast<uint8_t>(ul_encoded_codewords.at(n).at(i)));
+        if (kPrintEncodedBytes){
+          std::printf("Encoded Uplink information bytes\n");
+          for (size_t n = 0; n < num_ul_codeblocks; n++) {
+            std::printf("encoded bytes Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
+                        n % this->cfg_->UeAntNum());
+            for (size_t i = 0; i < encoded_bytes; i++) {
+              std::printf("%02X ",
+                          static_cast<uint8_t>(ul_encoded_codewords.at(n).at(i)));
+            }
+            std::printf("\n");
           }
-          std::printf("\n");
-        }
 
-        std::printf("Encoded Uplink information bytes for FlexRAN is: \n");
-        for (size_t n = 0; n < num_ul_codeblocks; n++) {
-          std::printf("FlexRAN encoded bytes Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
-                      n % this->cfg_->UeAntNum());
-          for (size_t i = 0; i < encoded_bytes; i++) {
-            std::printf("%02X ",
-                        static_cast<uint8_t>(ul_encoded_codewords_flexRAN.at(n).at(i)));
+          std::printf("Encoded Uplink information bytes for FlexRAN is: \n");
+          for (size_t n = 0; n < num_ul_codeblocks; n++) {
+            std::printf("FlexRAN encoded bytes Symbol %zu, UE %zu\n", n / this->cfg_->UeAntNum(),
+                        n % this->cfg_->UeAntNum());
+            for (size_t i = 0; i < encoded_bytes; i++) {
+              std::printf("%02X ",
+                          static_cast<uint8_t>(ul_encoded_codewords_flexRAN.at(n).at(i)));
+            }
+            std::printf("\n");
           }
-          std::printf("\n");
         }
       }
     }
@@ -1208,7 +1211,6 @@ std::vector<int8_t> DataGenerator::GenCodeblock(const LDPCconfig& lc,
       LdpcEncodingParityBufSize(lc.BaseGraph(), lc.ExpansionFactor()));
 
   const size_t encoded_bytes = BitsToBytes(lc.NumCbCodewLen());
-  std::cout<<"Encoded bytes are: "  << encoded_bytes << std::endl;
   std::vector<int8_t> encoded_codeword(encoded_bytes, 0);
 
   LdpcEncodeHelper(lc.BaseGraph(), lc.ExpansionFactor(), lc.NumRows(),
@@ -1244,7 +1246,6 @@ std::vector<int8_t> DataGenerator::GenCodeblock_ACC100(const LDPCconfig& lc,
       LdpcEncodingParityBufSize(lc.BaseGraph(), lc.ExpansionFactor()));
 
   const size_t encoded_bytes = BitsToBytes(lc.NumCbCodewLen());
-  std::cout<<"Encoded bytes are: "  << encoded_bytes << std::endl;
   std::vector<int8_t> encoded_codeword(encoded_bytes, 0);
 
   char *data;
@@ -1277,9 +1278,7 @@ std::vector<int8_t> DataGenerator::GenCodeblock_ACC100(const LDPCconfig& lc,
   rte_pktmbuf_free(m_head);
   rte_pktmbuf_free(m_head_out);
 
-  std::cout<< "enq num is: " << enq << std::endl;
   enq += rte_bbdev_enqueue_ldpc_enc_ops(0, 0, &ref_enc_op[enq], 1);
-  std::cout<< "enq num is: " << enq << std::endl;
   deq += rte_bbdev_dequeue_ldpc_enc_ops(0, 0, &ops_deq[deq], enq - deq);
 
   int retry_count = 0;
@@ -1287,7 +1286,6 @@ std::vector<int8_t> DataGenerator::GenCodeblock_ACC100(const LDPCconfig& lc,
   while (deq < enq && retry_count < MAX_DEQUEUE_TRIAL) {
     deq += rte_bbdev_dequeue_ldpc_enc_ops(0, 0, &ops_deq[deq], enq - deq);
   }
-  std::cout<< "deq num is: " << deq << std::endl;
 
   struct rte_bbdev_op_ldpc_enc *ops_td;
   struct rte_bbdev_op_data *hard_output;

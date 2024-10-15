@@ -37,6 +37,7 @@ static constexpr size_t kControlMCS = 5;  // QPSK, 379/1024
 
 /// Print the I/Q samples in the pilots
 static constexpr bool kDebugPrintPilot = false;
+static constexpr bool kDebugPrintBytes = false;
 
 static const std::string kLogFilepath =
     TOSTRING(PROJECT_DIRECTORY) "/files/log/";
@@ -1404,17 +1405,19 @@ void Config::GenData() {
           ldpc_input = GetInfoBits(ul_bits_, Direction::kUplink, i, j, k);
         }
 
-        std::cout<<"LDPC input print original; symbol index is: "<<i<<std::endl;
-        for (size_t ii = 0; ii < ul_num_bytes_per_cb_; ii++) {
-          std::printf("%02X ", static_cast<uint8_t>(*(temp_ul + ii)));
-        }
-        std::printf("\n");
+        if (kDebugPrintBytes){
+          std::cout<<"LDPC input print original; symbol index is: "<<i<<std::endl;
+          for (size_t ii = 0; ii < ul_num_bytes_per_cb_; ii++) {
+            std::printf("%02X ", static_cast<uint8_t>(*(temp_ul + ii)));
+          }
+          std::printf("\n");
 
-        std::cout<<"LDPC input print after scramble; symbol index is: "<<i<<std::endl;
-        for (size_t ii = 0; ii < ul_num_bytes_per_cb_; ii++) {
-          std::printf("%02X ", static_cast<uint8_t>(*(ldpc_input + ii)));
+          std::cout<<"LDPC input print after scramble; symbol index is: "<<i<<std::endl;
+          for (size_t ii = 0; ii < ul_num_bytes_per_cb_; ii++) {
+            std::printf("%02X ", static_cast<uint8_t>(*(ldpc_input + ii)));
+          }
+          std::printf("\n");
         }
-        std::printf("\n");
 
         //Clean padding
         if (ul_num_bytes_per_cb_ > 0) {
@@ -1435,24 +1438,27 @@ void Config::GenData() {
                          ul_temp_parity_buffer, ldpc_input);
         }
 
-        std::cout<<"Encoded bits; symbol index is: "<<i<<std::endl;
-
-        for (size_t ii = 0; ii < ul_encoded_bytes_per_block; ii++) {
-          std::printf("%02X ", static_cast<uint8_t>(*(coded_bits_ptr + ii)));
+        if (kDebugPrintBytes){
+          std::cout<<"Encoded bits; symbol index is: "<<i<<std::endl;
+          for (size_t ii = 0; ii < ul_encoded_bytes_per_block; ii++) {
+            std::printf("%02X ", static_cast<uint8_t>(*(coded_bits_ptr + ii)));
+          }
+          std::printf("\n");
         }
-        std::printf("\n");
 
         int8_t* mod_input_ptr =
             GetModBitsBuf(ul_mod_bits_, Direction::kUplink, 0, i, j, k);
         AdaptBitsForMod(reinterpret_cast<uint8_t*>(coded_bits_ptr),
                         reinterpret_cast<uint8_t*>(mod_input_ptr),
                         ul_encoded_bytes_per_block, ul_mod_order_bits_);
-        std::cout<<"mod_input; symbol index is: "<<i<<std::endl;
-        for (size_t ii = 0; ii < ofdm_data_num_; ii++) {
-          std::printf("%02X ", static_cast<uint8_t>(*(mod_input_ptr + ii)));
+        if (kDebugPrintBytes){
+          std::cout<<"mod_input; symbol index is: "<<i<<std::endl;
+          for (size_t ii = 0; ii < ofdm_data_num_; ii++) {
+            std::printf("%02X ", static_cast<uint8_t>(*(mod_input_ptr + ii)));
+          }
+          std::printf("\n");
+          std::printf("\n");
         }
-        std::printf("\n");
-        std::printf("\n");
       }
     }
   }

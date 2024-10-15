@@ -16,6 +16,8 @@ AgoraBuffer::AgoraBuffer(Config* const cfg)
                       cfg->SpatialStreamsNum() * cfg->BsAntNum()),
       demod_buffer_(kFrameWnd, cfg->Frame().NumULSyms(),
                     cfg->SpatialStreamsNum(), kMaxModType * cfg->OfdmDataNum()),
+      llr_buffer_(kFrameWnd, cfg->Frame().NumULSyms(),
+                    cfg->SpatialStreamsNum(), kMaxModType * cfg->OfdmDataNum()),
       decoded_buffer_(kFrameWnd, cfg->Frame().NumULSyms(), cfg->UeAntNum(),
                       cfg->LdpcConfig(Direction::kUplink).NumBlocksInSymbol() *
                           Roundup<64>(cfg->NumBytesPerCb(Direction::kUplink))) {

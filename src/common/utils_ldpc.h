@@ -78,6 +78,32 @@ static inline void AdaptBitsForMod(const uint8_t* bit_seq_in,
   }
 }
 
+static inline void ReverseAdaptBitsForMod(uint8_t* bytes_in,
+                                          uint8_t* bit_seq_out,
+                                          size_t len,
+                                          size_t mod_type) {
+  uint16_t bits = 0;      // Bits collected from the input
+  size_t bits_avail = 0;  // Number of valid bits filled into [bits]
+
+  for (size_t i = 0; i < len; i++) {
+    // Read next byte and add it to the bitstream
+    bits |= static_cast<uint16_t>(bytes_in[i]) << (16 - mod_type - bits_avail);
+    bits_avail += mod_type;
+
+    // Extract full bytes from the bitstream when available
+    while (bits_avail >= 8) {
+      *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 8));  // Reverse the upper byte
+      bits <<= 8;
+      bits_avail -= 8;
+    }
+  }
+
+  // Handle remaining bits
+  if (bits_avail > 0) {
+    *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 8));  // Reverse remaining bits
+  }
+}
+
 /*
  * Copy packed, bit-reversed 8-bit fields stored in
  * vec_in[0..len-1] into unpacked m-bit vec_out (m == mod_type).

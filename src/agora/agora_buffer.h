@@ -40,6 +40,11 @@ class AgoraBuffer {
   inline PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& GetDemod() {
     return demod_buffer_;
   }
+
+  inline PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t>& GetLLR() {
+    return llr_buffer_;
+  }
+
   inline PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& GetDecod() {
     return decoded_buffer_;
   }
@@ -88,6 +93,7 @@ class AgoraBuffer {
   PtrGrid<kFrameWnd, kMaxDataSCs, complex_float> ul_beam_matrix_;
   PtrGrid<kFrameWnd, kMaxDataSCs, complex_float> dl_beam_matrix_;
   PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t> demod_buffer_;
+  PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t> llr_buffer_;
   PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t> decoded_buffer_;
   Table<complex_float> fft_buffer_;
   Table<complex_float> equal_buffer_;

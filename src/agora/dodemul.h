@@ -18,6 +18,9 @@
 #include "phy_stats.h"
 #include "stats.h"
 #include "symbols.h"
+#include <iomanip>  // For std::hex, std::setw, std::setfill
+#include "utils_ldpc.h"
+
 
 class DoDemul : public Doer {
  public:
@@ -26,6 +29,7 @@ class DoDemul : public Doer {
           Table<complex_float>& ue_spec_pilot_buffer,
           Table<complex_float>& equal_buffer,
           PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers_,
+          PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t>& llr_buffers_,
           std::array<arma::fmat, kFrameWnd>& ul_phase_base,
           std::array<arma::fmat, kFrameWnd>& ul_phase_shift_per_symbol,
           MacScheduler* mac_sched, PhyStats* in_phy_stats,
@@ -66,6 +70,7 @@ class DoDemul : public Doer {
   Table<complex_float>& ue_spec_pilot_buffer_;
   Table<complex_float>& equal_buffer_;
   PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers_;
+  PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t>& llr_buffers_;
   MacScheduler* mac_sched_;
   DurationStat* duration_stat_demul_;
   DurationStat* duration_stat_equal_;

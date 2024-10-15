@@ -9,6 +9,54 @@
 #include "modulation.h"
 
 static constexpr bool kUseSIMDGather = true;
+static constexpr bool kCheckData = false;
+
+void TranslateToLLR(const uint8_t* encoded_bits, uint32_t* LLR, size_t bit_len) {
+  size_t num_bytes = (bit_len + 7) / 8;  // Calculate the number of bytes in encoded_bits
+  size_t llr_idx = 0;  // Index for LLR (as uint32_t)
+  uint32_t llr_val = 0;  // This will hold 4 LLR values (4 x uint8_t)
+
+  for (size_t byte_idx = 0; byte_idx < num_bytes; byte_idx++) {
+    uint8_t byte = encoded_bits[byte_idx];
+
+    // Process each bit in the byte (from MSB to LSB)
+    for (int bit_pos = 7; bit_pos >= 0 && (byte_idx * 8 + (7 - bit_pos)) < bit_len; bit_pos--) {
+      uint8_t bit = (byte >> bit_pos) & 1;
+      uint8_t translated_bit = (bit == 0) ? 0x7F : 0x81;
+
+      // Pack each translated bit into the uint32_t variable (4 LLR values per uint32_t)
+      llr_val |= static_cast<uint32_t>(translated_bit) << (8 * (3 - (bit_pos % 4)));  // Pack LLR values
+
+      // Store and reset if we have 4 LLR values (32 bits)
+      if ((7 - bit_pos) % 4 == 3) {
+        LLR[llr_idx++] = llr_val;
+        llr_val = 0;  // Reset for the next group of 4 LLRs
+      }
+    }
+  }
+
+  // Store remaining LLR values if they are less than 4 in the final uint32_t
+  if (bit_len % 4 != 0) {
+    LLR[llr_idx++] = llr_val;
+  }
+}
+
+// void TranslateToLLR(const uint8_t* encoded_bits, int8_t* LLR, size_t bit_len) {
+//   size_t num_bytes = (bit_len + 7) / 8;  // Calculate the number of bytes in encoded_bits
+
+//   for (size_t byte_idx = 0; byte_idx < num_bytes; byte_idx++) {
+//     uint8_t byte = encoded_bits[byte_idx];
+
+//     // Process each bit in the byte (from LSB to MSB for little-endian)
+//     for (int bit_pos = 0; bit_pos < 8 && (byte_idx * 8 + bit_pos) < bit_len; bit_pos++) {
+//       uint8_t bit = (byte >> bit_pos) & 1;
+
+//       // Translate bit to LLR value (0 -> 0x7F, 1 -> 0x81), stored as int8_t
+//       LLR[byte_idx * 8 + bit_pos] = (bit == 0) ? static_cast<int8_t>(0x7F) : static_cast<int8_t>(0x81);
+//     }
+//   }
+// }
+
 
 DoDemul::DoDemul(
     Config* config, int tid, Table<complex_float>& data_buffer,
@@ -16,6 +64,7 @@ DoDemul::DoDemul(
     Table<complex_float>& ue_spec_pilot_buffer,
     Table<complex_float>& equal_buffer,
     PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers,
+    PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t>& llr_buffers,
     std::array<arma::fmat, kFrameWnd>& ul_phase_base,
     std::array<arma::fmat, kFrameWnd>& ul_phase_shift_per_symbol,
     MacScheduler* mac_sched, PhyStats* in_phy_stats, Stats* stats_manager)
@@ -25,6 +74,7 @@ DoDemul::DoDemul(
       ue_spec_pilot_buffer_(ue_spec_pilot_buffer),
       equal_buffer_(equal_buffer),
       demod_buffers_(demod_buffers),
+      llr_buffers_(llr_buffers),
       ul_phase_base_(ul_phase_base),
       ul_phase_shift_per_symbol_(ul_phase_shift_per_symbol),
       mac_sched_(mac_sched),
@@ -1326,9 +1376,31 @@ EventData DoDemul::Launch(size_t tag) {
     equal_t_ptr = (float*)(equaled_buffer_temp_transposed_);
     int8_t* demod_ptr = demod_buffers_[frame_slot][symbol_idx_ul][ss_id] +
                         (cfg_->ModOrderBits(Direction::kUplink) * base_sc_id);
+    uint32_t* LLR = llr_buffers_[frame_slot][symbol_idx_ul][ss_id] +
+                        (cfg_->ModOrderBits(Direction::kUplink) * base_sc_id);
     size_t start_demul_tsc0 = GetTime::WorkerRdtsc();
+    // Demodulate(equal_t_ptr, demod_ptr, max_sc_ite,
+    //            cfg_->ModOrderBits(Direction::kUplink), kUplinkHardDemod);
     Demodulate(equal_t_ptr, demod_ptr, max_sc_ite,
-               cfg_->ModOrderBits(Direction::kUplink), kUplinkHardDemod);
+               cfg_->ModOrderBits(Direction::kUplink), true);
+    size_t encoded_bits_size = (max_sc_ite * cfg_->ModOrderBits(Direction::kUplink) + 7) / 8;  // Round up if not divisible by 8
+    uint8_t* encoded_bits = new uint8_t[encoded_bits_size];  // Dynamically allocate the array
+      ReverseAdaptBitsForMod(reinterpret_cast<uint8_t*>(demod_ptr), encoded_bits, max_sc_ite,
+                             cfg_->ModOrderBits(Direction::kUplink));
+    size_t bit_len = max_sc_ite * cfg_->ModOrderBits(Direction::kUplink);  // Total number of bits in encoded_bits
+    size_t llr_len = (bit_len + 3) / 4;  // LLR length in terms of uint32_t (4 LLRs per uint32_t)
+    // uint32_t* LLR = new uint32_t[llr_len];  // Allocate space for LLR array
+
+    TranslateToLLR(encoded_bits, LLR, bit_len);
+    
+    if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
+      std::printf("LLR bits, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
+      for (size_t i = 0; i < llr_len; i++) {
+        std::printf(", 0x%04X", static_cast<uint32_t>(*(LLR + i)));
+      }
+      std::printf("\n");
+    }
+    
     duration_stat_demul_->task_duration_[1] =
         GetTime::WorkerRdtsc() - start_demul_tsc0;
     duration_stat_demul_->task_count_++;
@@ -1346,6 +1418,64 @@ EventData DoDemul::Launch(size_t tag) {
       int8_t* tx_bytes =
           cfg_->GetModBitsBuf(cfg_->UlModBits(), Direction::kUplink, 0,
                               symbol_idx_ul, ue_id, base_sc_id);
+
+
+      // size_t encoded_bits_size = (max_sc_ite * cfg_->ModOrderBits(Direction::kUplink) + 7) / 8;  // Round up if not divisible by 8
+      // uint8_t* encoded_bits = new uint8_t[encoded_bits_size];  // Dynamically allocate the array
+      // ReverseAdaptBitsForMod(reinterpret_cast<uint8_t*>(demod_ptr), encoded_bits, max_sc_ite,
+      //                        cfg_->ModOrderBits(Direction::kUplink));
+
+      // // size_t bit_len = max_sc_ite * cfg_->ModOrderBits(Direction::kUplink);  // Total number of bits in encoded_bits
+      // // uint8_t* LLR = new uint8_t[bit_len];  // Allocate space for the LLR array
+      // // TranslateToLLR(encoded_bits, LLR, bit_len);
+
+      // size_t bit_len = max_sc_ite * cfg_->ModOrderBits(Direction::kUplink);  // Total number of bits in encoded_bits
+      // size_t llr_len = (bit_len + 3) / 4;  // LLR length in terms of uint32_t (4 LLRs per uint32_t)
+      // int8_t* LLR = new int8_t[bit_len];  // Allocate space for LLR array
+
+      // TranslateToLLR(encoded_bits, LLR, bit_len);
+      
+      // if (symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
+      //   std::printf("equal buffer, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
+      //   for (size_t i = 0; i < max_sc_ite; i++) {
+      //     std::printf("%f ", static_cast<uint8_t>(*(equal_t_ptr + i)));
+      //   }
+      //   std::printf("\n");
+      // }
+
+      if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
+        std::printf("tx bytes, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
+        for (size_t i = 0; i < max_sc_ite; i++) {
+          std::printf("%02X ", static_cast<uint8_t>(*(tx_bytes + i)));
+        }
+        std::printf("\n");
+      }
+
+      if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
+        std::printf("rx bytes, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
+        for (size_t i = 0; i < max_sc_ite; i++) {
+          std::printf("%02X ", static_cast<uint8_t>(*(demod_ptr + i)));
+        }
+        std::printf("\n");
+      }
+
+      if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
+        std::printf("encoded bits, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
+        for (size_t i = 0; i < encoded_bits_size; i++) {
+          std::printf("%02X ", static_cast<uint8_t>(*(encoded_bits + i)));
+        }
+        std::printf("\n");
+      }
+
+      if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
+        std::printf("LLR bits, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
+        for (size_t i = 0; i < llr_len; i++) {
+          std::printf(", 0x%04X", static_cast<uint32_t>(*(LLR + i)));
+        }
+        std::printf("\n");
+      }
+
+    
       for (size_t i = 0; i < max_sc_ite; i++) {
         uint8_t rx_byte = static_cast<uint8_t>(demod_ptr[i]);
         uint8_t tx_byte = static_cast<uint8_t>(tx_bytes[i]);
@@ -1367,6 +1497,8 @@ EventData DoDemul::Launch(size_t tag) {
     //   std::printf("%i ", demul_ptr[k]);
     // cout << endl;
   }
+
+
   duration_stat_demul_->task_duration_[0] +=
       GetTime::WorkerRdtsc() - start_demul_tsc;
   return EventData(EventType::kDemul, tag);

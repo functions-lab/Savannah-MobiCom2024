@@ -89,7 +89,7 @@ void AgoraWorker::InitializeWorker() {
   // Uplink workers
 #if defined(USE_ACC100)
   auto compute_decoding =
-      std::make_shared<DoDecode_ACC>(config_, tid, buffer_->GetDemod(),
+      std::make_shared<DoDecode_ACC>(config_, tid, buffer_->GetDemod(), buffer_->GetLLR(),
                                      buffer_->GetDecod(), phy_stats_, stats_);
 #else
   auto compute_decoding = std::make_shared<DoDecode>(
@@ -99,7 +99,7 @@ void AgoraWorker::InitializeWorker() {
 
   auto compute_demul = std::make_shared<DoDemul>(
       config_, tid, buffer_->GetFft(), buffer_->GetUlBeamMatrix(),
-      buffer_->GetUeSpecPilot(), buffer_->GetEqual(), buffer_->GetDemod(),
+      buffer_->GetUeSpecPilot(), buffer_->GetEqual(), buffer_->GetDemod(), buffer_->GetLLR(),
       buffer_->GetUlPhaseBase(), buffer_->GetUlPhaseShiftPerSymbol(),
       mac_sched_, phy_stats_, stats_);
 
@@ -214,7 +214,7 @@ void AgoraWorker::WorkerThread(int tid) {
 #if defined(USE_ACC100)
   // RtAssert(config_->WorkerThreadNum() == 1, "ACC100: not compatible with multi thread.");
   auto compute_decoding =
-      std::make_unique<DoDecode_ACC>(config_, tid, buffer_->GetDemod(),
+      std::make_unique<DoDecode_ACC>(config_, tid, buffer_->GetDemod(), buffer_->GetLLR(),
                                      buffer_->GetDecod(), phy_stats_, stats_);
 #else
   auto compute_decoding = std::make_unique<DoDecode>(
@@ -224,7 +224,7 @@ void AgoraWorker::WorkerThread(int tid) {
 
   auto compute_demul = std::make_unique<DoDemul>(
       config_, tid, buffer_->GetFft(), buffer_->GetUlBeamMatrix(),
-      buffer_->GetUeSpecPilot(), buffer_->GetEqual(), buffer_->GetDemod(),
+      buffer_->GetUeSpecPilot(), buffer_->GetEqual(), buffer_->GetDemod(), buffer_->GetLLR(),
       buffer_->GetUlPhaseBase(), buffer_->GetUlPhaseShiftPerSymbol(),
       mac_sched_, phy_stats_, stats_);
 
