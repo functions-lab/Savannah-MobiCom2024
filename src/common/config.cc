@@ -1406,13 +1406,13 @@ void Config::GenData() {
         }
 
         if (kDebugPrintBytes){
-          std::cout<<"LDPC input print original; symbol index is: "<<i<<std::endl;
+          std::cout<<"LDPC input print original; symbol index is: "<< i << " , UE id is: " << j <<std::endl;
           for (size_t ii = 0; ii < ul_num_bytes_per_cb_; ii++) {
             std::printf("%02X ", static_cast<uint8_t>(*(temp_ul + ii)));
           }
           std::printf("\n");
 
-          std::cout<<"LDPC input print after scramble; symbol index is: "<<i<<std::endl;
+          std::cout<<"LDPC input print after scramble; symbol index is: "<< i << " , UE id is: " << j <<std::endl;
           for (size_t ii = 0; ii < ul_num_bytes_per_cb_; ii++) {
             std::printf("%02X ", static_cast<uint8_t>(*(ldpc_input + ii)));
           }

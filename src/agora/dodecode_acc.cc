@@ -372,7 +372,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     size_t start_tsc2 = GetTime::WorkerRdtsc();
     duration_stat_->task_duration_[2] += start_tsc2 - start_tsc1;
 
-    size_t BLER(0);
     uint8_t rx_byte[MAX_RX_BYTE_SIZE];
     int8_t* ref_byte;
     uint8_t tx_byte;
@@ -384,14 +383,14 @@ EventData DoDecode_ACC::Launch(size_t tag) {
       // get mbuf from the ops_deq
 
       struct rte_bbdev_op_ldpc_dec *ops_td;
-      unsigned int i = 2;
+      unsigned int i = 2 * num_ue;
       struct rte_bbdev_op_data *hard_output;
       struct rte_mbuf *temp_m;
-      size_t offset = 0;
-
-      for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){
-        size_t BLER(0);
-        for (size_t temp_idx = 2; temp_idx < num_ul_syms; temp_idx++){
+      std::vector<size_t> block_errors(num_ue, 0);
+      // size_t offset = 0;
+      
+    for (size_t temp_idx = 2; temp_idx < num_ul_syms; temp_idx++){
+      for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){  
           ref_byte = 
             cfg_->GetInfoBits(cfg_->UlBits(), Direction::kUplink, temp_idx,
                               temp_ue_id, cur_cb_id);
@@ -421,15 +420,15 @@ EventData DoDecode_ACC::Launch(size_t tag) {
         // std::cout << "memcmp_ret is: " << memcmp_ret << std::endl;
           if (memcmp_ret != 0) {
               // Data matches, do something
-              block_error++;
+              block_errors[temp_ue_id]++;
           }
           i++;
         }
-        phy_stats_->UpdateDecodedBits(temp_ue_id, symbol_offset, frame_slot,
-                                      num_bytes_per_cb * 8);
+      }
+      for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++) {
+        phy_stats_->UpdateDecodedBits(temp_ue_id, symbol_offset, frame_slot, num_bytes_per_cb * 8);
         phy_stats_->IncrementDecodedBlocks(temp_ue_id, symbol_offset, frame_slot);
-        // memcmp(rte_pktmbuf_mtod_offset(m, uint32_t *, 0),
-        phy_stats_->UpdateBlockErrors(temp_ue_id, symbol_offset, frame_slot, block_error);
+        phy_stats_->UpdateBlockErrors(temp_ue_id, symbol_offset, frame_slot, block_errors[temp_ue_id]);
       }
     }
 
@@ -536,13 +535,14 @@ EventData DoDecode_ACC::Launch(size_t tag) {
       // get mbuf from the ops_deq
 
       struct rte_bbdev_op_ldpc_dec *ops_td;
-      unsigned int i = 2;
+      unsigned int i = 2 * num_ue;
       struct rte_bbdev_op_data *hard_output;
       struct rte_mbuf *temp_m;
+      std::vector<size_t> block_errors(num_ue, 0);
       // size_t offset = 0;
-
-      for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){
-        for (size_t temp_idx = 2; temp_idx < num_ul_syms; temp_idx++){
+      
+    for (size_t temp_idx = 2; temp_idx < num_ul_syms; temp_idx++){
+      for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){  
           ref_byte = 
             cfg_->GetInfoBits(cfg_->UlBits(), Direction::kUplink, temp_idx,
                               temp_ue_id, cur_cb_id);
@@ -585,15 +585,15 @@ EventData DoDecode_ACC::Launch(size_t tag) {
         // std::cout << "memcmp_ret is: " << memcmp_ret << std::endl;
         if (memcmp_ret != 0) {
             // Data matches, do something
-            block_error++;
+            block_errors[temp_ue_id]++;
         }
           i++;
         }
-        phy_stats_->UpdateDecodedBits(temp_ue_id, symbol_offset, frame_slot,
-                                      num_bytes_per_cb * 8);
+      }
+      for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++) {
+        phy_stats_->UpdateDecodedBits(temp_ue_id, symbol_offset, frame_slot, num_bytes_per_cb * 8);
         phy_stats_->IncrementDecodedBlocks(temp_ue_id, symbol_offset, frame_slot);
-        // memcmp(rte_pktmbuf_mtod_offset(m, uint32_t *, 0),
-        phy_stats_->UpdateBlockErrors(temp_ue_id, symbol_offset, frame_slot, block_error);
+        phy_stats_->UpdateBlockErrors(temp_ue_id, symbol_offset, frame_slot, block_errors[temp_ue_id]);
       }
     }
 
