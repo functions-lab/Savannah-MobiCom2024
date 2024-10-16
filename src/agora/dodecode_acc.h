@@ -69,7 +69,6 @@ class DoDecode_ACC : public Doer {
   DoDecode_ACC(
       Config* in_config, int in_tid,
       PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers,
-      PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t>& llr_buffers,
       PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& decoded_buffers,
       PhyStats* in_phy_stats, Stats* in_stats_manager);
   ~DoDecode_ACC() override;
@@ -84,7 +83,6 @@ class DoDecode_ACC : public Doer {
  private:
   int16_t* resp_var_nodes_;
   PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers_;
-  PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t>& llr_buffers_;
   PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& decoded_buffers_;
   PhyStats* phy_stats_;
   DurationStat* duration_stat_;

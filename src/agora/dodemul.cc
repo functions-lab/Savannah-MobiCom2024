@@ -11,51 +11,86 @@
 static constexpr bool kUseSIMDGather = true;
 static constexpr bool kCheckData = false;
 
-void TranslateToLLR(const uint8_t* encoded_bits, uint32_t* LLR, size_t bit_len) {
-  size_t num_bytes = (bit_len + 7) / 8;  // Calculate the number of bytes in encoded_bits
-  size_t llr_idx = 0;  // Index for LLR (as uint32_t)
-  uint32_t llr_val = 0;  // This will hold 4 LLR values (4 x uint8_t)
 
-  for (size_t byte_idx = 0; byte_idx < num_bytes; byte_idx++) {
-    uint8_t byte = encoded_bits[byte_idx];
+#include <immintrin.h>
+#include <stddef.h>
+#include <stdint.h>
 
-    // Process each bit in the byte (from MSB to LSB)
-    for (int bit_pos = 7; bit_pos >= 0 && (byte_idx * 8 + (7 - bit_pos)) < bit_len; bit_pos--) {
-      uint8_t bit = (byte >> bit_pos) & 1;
-      uint8_t translated_bit = (bit == 0) ? 0x7F : 0x81;
+// void TranslateToLLR_AVX512(const uint8_t* encoded_bits, int8_t* LLR, size_t bit_len) {
+//   size_t num_bytes = (bit_len + 7) / 8;  // Total number of bytes
+//   size_t full_chunks = num_bytes / 64;   // Process 64 bytes (512 bits) at a time
+//   size_t remaining_bytes = num_bytes % 64; // Bytes left after full 64-byte chunks
 
-      // Pack each translated bit into the uint32_t variable (4 LLR values per uint32_t)
-      llr_val |= static_cast<uint32_t>(translated_bit) << (8 * (3 - (bit_pos % 4)));  // Pack LLR values
+//   // AVX512 constants
+//   __m512i bit_1_mask = _mm512_set1_epi8(0x01);  // Mask to extract bits
+//   __m512i llr_one = _mm512_set1_epi8(0x81);     // LLR value for bit 1
+//   __m512i llr_zero = _mm512_set1_epi8(0x7F);    // LLR value for bit 0
 
-      // Store and reset if we have 4 LLR values (32 bits)
-      if ((7 - bit_pos) % 4 == 3) {
-        LLR[llr_idx++] = llr_val;
-        llr_val = 0;  // Reset for the next group of 4 LLRs
-      }
-    }
-  }
+//   // Process full 64-byte chunks
+//   for (size_t chunk = 0; chunk < full_chunks; ++chunk) {
+//     // Load 64 bytes from encoded_bits into a 512-bit AVX512 register
+//     __m512i byte_chunk = _mm512_loadu_si512((__m512i*)&encoded_bits[chunk * 64]);
 
-  // Store remaining LLR values if they are less than 4 in the final uint32_t
-  if (bit_len % 4 != 0) {
-    LLR[llr_idx++] = llr_val;
-  }
-}
+//     // Process each bit in the byte by comparing against 0x80, 0x40, 0x20, ..., 0x01
+//     for (int bit_shift = 7; bit_shift >= 0; --bit_shift) {
+//       // Create a mask for the current bit (shifting byte_chunk right by bit_shift)
+//       __m512i shifted_chunk = _mm512_srli_epi16(byte_chunk, bit_shift);
+//       __m512i bit_mask = _mm512_and_si512(shifted_chunk, bit_1_mask);
 
-// void TranslateToLLR(const uint8_t* encoded_bits, int8_t* LLR, size_t bit_len) {
-//   size_t num_bytes = (bit_len + 7) / 8;  // Calculate the number of bytes in encoded_bits
+//       // Use AVX512 mask compare to select 0x81 (LLR for bit 1) or 0x7F (LLR for bit 0)
+//       __m512i llr_result = _mm512_mask_blend_epi8(_mm512_cmp_epi8_mask(bit_mask, bit_1_mask, _MM_CMPINT_EQ), llr_zero, llr_one);
 
-//   for (size_t byte_idx = 0; byte_idx < num_bytes; byte_idx++) {
-//     uint8_t byte = encoded_bits[byte_idx];
+//       // Store the result LLR values
+//       _mm512_storeu_si512((__m512i*)&LLR[(chunk * 64 * 8) + (7 - bit_shift) * 64], llr_result);
+//     }
+//   }
 
-//     // Process each bit in the byte (from LSB to MSB for little-endian)
-//     for (int bit_pos = 0; bit_pos < 8 && (byte_idx * 8 + bit_pos) < bit_len; bit_pos++) {
-//       uint8_t bit = (byte >> bit_pos) & 1;
+//   // Handle remaining bytes (less than 64)
+//   if (remaining_bytes > 0) {
+//     // Process each remaining byte in a scalar loop (like the original implementation)
+//     size_t base_idx = full_chunks * 64;
+//     for (size_t byte_idx = 0; byte_idx < remaining_bytes; ++byte_idx) {
+//       uint8_t byte = encoded_bits[base_idx + byte_idx];
 
-//       // Translate bit to LLR value (0 -> 0x7F, 1 -> 0x81), stored as int8_t
-//       LLR[byte_idx * 8 + bit_pos] = (bit == 0) ? static_cast<int8_t>(0x7F) : static_cast<int8_t>(0x81);
+//       LLR[base_idx * 8 + byte_idx * 8 + 0] = (byte & 0x80) ? 0x81 : 0x7F;
+//       LLR[base_idx * 8 + byte_idx * 8 + 1] = (byte & 0x40) ? 0x81 : 0x7F;
+//       LLR[base_idx * 8 + byte_idx * 8 + 2] = (byte & 0x20) ? 0x81 : 0x7F;
+//       LLR[base_idx * 8 + byte_idx * 8 + 3] = (byte & 0x10) ? 0x81 : 0x7F;
+//       LLR[base_idx * 8 + byte_idx * 8 + 4] = (byte & 0x08) ? 0x81 : 0x7F;
+//       LLR[base_idx * 8 + byte_idx * 8 + 5] = (byte & 0x04) ? 0x81 : 0x7F;
+//       LLR[base_idx * 8 + byte_idx * 8 + 6] = (byte & 0x02) ? 0x81 : 0x7F;
+//       LLR[base_idx * 8 + byte_idx * 8 + 7] = (byte & 0x01) ? 0x81 : 0x7F;
 //     }
 //   }
 // }
+
+
+void TranslateToLLR(const uint8_t* encoded_bits, int8_t* LLR, size_t bit_len) {
+  size_t num_full_bytes = bit_len / 8;  // Process full bytes
+  size_t remaining_bits = bit_len % 8;  // Handle remaining bits separately
+
+  // Process full bytes
+  for (size_t byte_idx = 0; byte_idx < num_full_bytes; ++byte_idx) {
+    uint8_t byte = encoded_bits[byte_idx];
+
+    LLR[byte_idx * 8 + 0] = (byte & 0x80) ? 0x81 : 0x7F;
+    LLR[byte_idx * 8 + 1] = (byte & 0x40) ? 0x81 : 0x7F;
+    LLR[byte_idx * 8 + 2] = (byte & 0x20) ? 0x81 : 0x7F;
+    LLR[byte_idx * 8 + 3] = (byte & 0x10) ? 0x81 : 0x7F;
+    LLR[byte_idx * 8 + 4] = (byte & 0x08) ? 0x81 : 0x7F;
+    LLR[byte_idx * 8 + 5] = (byte & 0x04) ? 0x81 : 0x7F;
+    LLR[byte_idx * 8 + 6] = (byte & 0x02) ? 0x81 : 0x7F;
+    LLR[byte_idx * 8 + 7] = (byte & 0x01) ? 0x81 : 0x7F;
+  }
+
+  // Handle remaining bits in the last byte, if any
+  if (remaining_bits > 0) {
+    uint8_t byte = encoded_bits[num_full_bytes];
+    for (size_t bit_idx = 0; bit_idx < remaining_bits; ++bit_idx) {
+      LLR[num_full_bytes * 8 + bit_idx] = (byte & (0x80 >> bit_idx)) ? 0x81 : 0x7F;
+    }
+  }
+}
 
 
 DoDemul::DoDemul(
@@ -64,7 +99,6 @@ DoDemul::DoDemul(
     Table<complex_float>& ue_spec_pilot_buffer,
     Table<complex_float>& equal_buffer,
     PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers,
-    PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t>& llr_buffers,
     std::array<arma::fmat, kFrameWnd>& ul_phase_base,
     std::array<arma::fmat, kFrameWnd>& ul_phase_shift_per_symbol,
     MacScheduler* mac_sched, PhyStats* in_phy_stats, Stats* stats_manager)
@@ -74,7 +108,6 @@ DoDemul::DoDemul(
       ue_spec_pilot_buffer_(ue_spec_pilot_buffer),
       equal_buffer_(equal_buffer),
       demod_buffers_(demod_buffers),
-      llr_buffers_(llr_buffers),
       ul_phase_base_(ul_phase_base),
       ul_phase_shift_per_symbol_(ul_phase_shift_per_symbol),
       mac_sched_(mac_sched),
@@ -1376,8 +1409,6 @@ EventData DoDemul::Launch(size_t tag) {
     equal_t_ptr = (float*)(equaled_buffer_temp_transposed_);
     int8_t* demod_ptr = demod_buffers_[frame_slot][symbol_idx_ul][ss_id] +
                         (cfg_->ModOrderBits(Direction::kUplink) * base_sc_id);
-    uint32_t* LLR = llr_buffers_[frame_slot][symbol_idx_ul][ss_id] +
-                        (cfg_->ModOrderBits(Direction::kUplink) * base_sc_id);
     size_t start_demul_tsc0 = GetTime::WorkerRdtsc();
 
 #ifdef USE_ACC100
@@ -1389,17 +1420,16 @@ EventData DoDemul::Launch(size_t tag) {
       ReverseAdaptBitsForMod(reinterpret_cast<uint8_t*>(demod_ptr), encoded_bits, max_sc_ite,
                              cfg_->ModOrderBits(Direction::kUplink));
     size_t bit_len = max_sc_ite * cfg_->ModOrderBits(Direction::kUplink);  // Total number of bits in encoded_bits
-    size_t llr_len = (bit_len + 3) / 4;  // LLR length in terms of uint32_t (4 LLRs per uint32_t)
-    // uint32_t* LLR = new uint32_t[llr_len];  // Allocate space for LLR array=
-    TranslateToLLR(encoded_bits, LLR, bit_len);
+    // size_t llr_len = (bit_len + 3) / 4;  // LLR length in terms of uint32_t (4 LLRs per uint32_t)
+    TranslateToLLR(encoded_bits, demod_ptr, bit_len);
 
-    if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
-      std::printf("LLR bits, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
-      for (size_t i = 0; i < llr_len; i++) {
-        std::printf(", 0x%04X", static_cast<uint32_t>(*(LLR + i)));
-      }
-      std::printf("\n");
-    }
+    // if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
+    //   std::printf("LLR bits, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
+    //   for (size_t i = 0; i < llr_len; i++) {
+    //     std::printf(", 0x%04X", static_cast<uint32_t>(*(LLR + i)));
+    //   }
+    //   std::printf("\n");
+    // }
 
     if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
       std::printf("encoded bits, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
@@ -1432,30 +1462,6 @@ EventData DoDemul::Launch(size_t tag) {
       int8_t* tx_bytes =
           cfg_->GetModBitsBuf(cfg_->UlModBits(), Direction::kUplink, 0,
                               symbol_idx_ul, ue_id, base_sc_id);
-
-
-      // size_t encoded_bits_size = (max_sc_ite * cfg_->ModOrderBits(Direction::kUplink) + 7) / 8;  // Round up if not divisible by 8
-      // uint8_t* encoded_bits = new uint8_t[encoded_bits_size];  // Dynamically allocate the array
-      // ReverseAdaptBitsForMod(reinterpret_cast<uint8_t*>(demod_ptr), encoded_bits, max_sc_ite,
-      //                        cfg_->ModOrderBits(Direction::kUplink));
-
-      // // size_t bit_len = max_sc_ite * cfg_->ModOrderBits(Direction::kUplink);  // Total number of bits in encoded_bits
-      // // uint8_t* LLR = new uint8_t[bit_len];  // Allocate space for the LLR array
-      // // TranslateToLLR(encoded_bits, LLR, bit_len);
-
-      // size_t bit_len = max_sc_ite * cfg_->ModOrderBits(Direction::kUplink);  // Total number of bits in encoded_bits
-      // size_t llr_len = (bit_len + 3) / 4;  // LLR length in terms of uint32_t (4 LLRs per uint32_t)
-      // int8_t* LLR = new int8_t[bit_len];  // Allocate space for LLR array
-
-      // TranslateToLLR(encoded_bits, LLR, bit_len);
-      
-      // if (symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
-      //   std::printf("equal buffer, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
-      //   for (size_t i = 0; i < max_sc_ite; i++) {
-      //     std::printf("%f ", static_cast<uint8_t>(*(equal_t_ptr + i)));
-      //   }
-      //   std::printf("\n");
-      // }
 
       if (kCheckData && symbol_idx_ul >= 12 && frame_id > 100 && frame_id % 100 == 0) {
         std::printf("tx bytes, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);

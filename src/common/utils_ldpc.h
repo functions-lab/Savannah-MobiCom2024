@@ -78,31 +78,97 @@ static inline void AdaptBitsForMod(const uint8_t* bit_seq_in,
   }
 }
 
+
+
+// static inline void ReverseAdaptBitsForMod(uint8_t* bytes_in,
+//                                           uint8_t* bit_seq_out,
+//                                           size_t len,
+//                                           size_t mod_type) {
+//   uint16_t bits = 0;      // Bits collected from the input
+//   size_t bits_avail = 0;  // Number of valid bits filled into [bits]
+
+//   for (size_t i = 0; i < len; i++) {
+//     // Read next byte and add it to the bitstream
+//     bits |= static_cast<uint16_t>(bytes_in[i]) << (16 - mod_type - bits_avail);
+//     bits_avail += mod_type;
+
+//     // Extract full bytes from the bitstream when available
+//     while (bits_avail >= 8) {
+//       *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 8));  // Reverse the upper byte
+//       bits <<= 8;
+//       bits_avail -= 8;
+//     }
+//   }
+
+//   // Handle remaining bits
+//   if (bits_avail > 0) {
+//     *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 8));  // Reverse remaining bits
+//   }
+// }
+
+// static inline void ReverseAdaptBitsForMod(uint8_t* bytes_in,
+//                                           uint8_t* bit_seq_out,
+//                                           size_t len,
+//                                           size_t mod_type) {
+//   uint16_t bits = 0;      // Bits collected from the input
+//   size_t bits_avail = 0;  // Number of valid bits in [bits]
+//   const size_t shift = 16 - mod_type;  // Calculate shift once
+
+//   for (size_t i = 0; i < len; ++i) {
+//     // Add next byte into the bitstream
+//     bits |= static_cast<uint16_t>(bytes_in[i]) << (shift - bits_avail);
+//     bits_avail += mod_type;
+
+//     // Extract full bytes when enough bits are available
+//     if (bits_avail >= 8) {
+//       *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 8));  // Reverse and store upper byte
+//       bits <<= 8;
+//       bits_avail -= 8;
+//     }
+//   }
+
+//   // Handle any remaining bits (if any)
+//   if (bits_avail > 0) {
+//     *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 8));  // Reverse and store remaining bits
+//   }
+// }
+
 static inline void ReverseAdaptBitsForMod(uint8_t* bytes_in,
                                           uint8_t* bit_seq_out,
                                           size_t len,
                                           size_t mod_type) {
-  uint16_t bits = 0;      // Bits collected from the input
-  size_t bits_avail = 0;  // Number of valid bits filled into [bits]
+  uint32_t bits = 0;      // Use a 32-bit accumulator for more efficient bit handling
+  size_t bits_avail = 0;  // Number of valid bits in [bits]
+  const size_t shift = 32 - mod_type;  // Pre-calculate the shift
 
-  for (size_t i = 0; i < len; i++) {
-    // Read next byte and add it to the bitstream
-    bits |= static_cast<uint16_t>(bytes_in[i]) << (16 - mod_type - bits_avail);
+  for (size_t i = 0; i < len; ++i) {
+    // Load byte into the upper part of the accumulator, left-aligned
+    bits |= static_cast<uint32_t>(bytes_in[i]) << (shift - bits_avail);
     bits_avail += mod_type;
 
-    // Extract full bytes from the bitstream when available
-    while (bits_avail >= 8) {
-      *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 8));  // Reverse the upper byte
-      bits <<= 8;
-      bits_avail -= 8;
+    // Process 2 bytes per loop iteration (manual unrolling)
+    if (bits_avail >= 16) {
+      // Reverse the upper byte and store it
+      *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 24));
+      // Reverse the next byte and store it
+      *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>((bits >> 16) & 0xFF));
+      
+      bits <<= 16;  // Shift out the processed bytes
+      bits_avail -= 16;  // Reduce available bits by 16 (2 bytes processed)
+    } else if (bits_avail >= 8) {
+      // Reverse and store one byte when only one byte is ready
+      *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 24));
+      bits <<= 8;  // Shift out the processed byte
+      bits_avail -= 8;  // Reduce available bits by 8 (1 byte processed)
     }
   }
 
-  // Handle remaining bits
+  // Handle any remaining bits at the end
   if (bits_avail > 0) {
-    *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 8));  // Reverse remaining bits
+    *bit_seq_out++ = Bitreverse8(static_cast<uint8_t>(bits >> 24));  // Reverse and store remaining bits
   }
 }
+
 
 /*
  * Copy packed, bit-reversed 8-bit fields stored in

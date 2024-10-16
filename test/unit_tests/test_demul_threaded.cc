@@ -69,7 +69,6 @@ void MasterToWorkerDynamicWorker(
     Table<complex_float>& ue_spec_pilot_buffer,
     Table<complex_float>& equal_buffer,
     PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t>& demod_buffers_,
-    PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t>& llr_buffers_,
     std::array<arma::fmat, kFrameWnd>& ul_phase_base,
     std::array<arma::fmat, kFrameWnd>& ul_phase_shift_per_symbol,
     MacScheduler* mac_sched, PhyStats* phy_stats, Stats* stats) {
@@ -83,7 +82,7 @@ void MasterToWorkerDynamicWorker(
 
   auto compute_demul = std::make_unique<DoDemul>(
       cfg, worker_id, data_buffer, ul_beam_matrices, ue_spec_pilot_buffer,
-      equal_buffer, demod_buffers_, llr_buffers_, ul_phase_base, ul_phase_shift_per_symbol,
+      equal_buffer, demod_buffers_, ul_phase_base, ul_phase_shift_per_symbol,
       mac_sched, phy_stats, stats);
 
   size_t start_tsc = GetTime::Rdtsc();
@@ -148,10 +147,6 @@ TEST(TestDemul, VaryingConfig) {
       kFrameWnd, cfg->Frame().NumTotalSyms(), cfg->UeAntNum(),
       kMaxModType * cfg->OfdmDataNum());
 
-  PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t> llr_buffers(
-      kFrameWnd, cfg->Frame().NumTotalSyms(), cfg->UeAntNum(),
-      kMaxModType * cfg->OfdmDataNum());
-
   std::printf(
       "Size of [data_buffer, ul_beam_matrices, equal_buffer, "
       "ue_spec_pilot_buffer, demod_soft_buffer]: [%.1f %.1f %.1f %.1f %.1f] "
@@ -186,7 +181,7 @@ TEST(TestDemul, VaryingConfig) {
         MasterToWorkerDynamicWorker, cfg.get(), i, std::ref(event_queue),
         std::ref(complete_task_queue), ptoks[i], std::ref(data_buffer),
         std::ref(ul_beam_matrices), std::ref(equal_buffer),
-        std::ref(ue_spec_pilot_buffer), std::ref(demod_buffers), std::ref(llr_buffers),
+        std::ref(ue_spec_pilot_buffer), std::ref(demod_buffers),
         std::ref(ul_phase_base_), std::ref(ul_phase_shift_per_symbol_),
         mac_sched.get(), phy_stats.get(), stats.get());
   }

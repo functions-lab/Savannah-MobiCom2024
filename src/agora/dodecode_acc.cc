@@ -60,7 +60,6 @@ ldpc_input_llr_scaling(struct rte_bbdev_op_data *input_ops,  const int8_t llr_si
 		}
 }
 
-
 static constexpr size_t kVarNodesSize = 1024 * 1024 * sizeof(int16_t);
 
 static unsigned int optimal_mempool_size(unsigned int val) {
@@ -87,12 +86,12 @@ void print_casted_uint8_hex(const uint8_t* array, size_t totalByteLength) {
 DoDecode_ACC::DoDecode_ACC(
     Config *in_config, int in_tid,
     PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t> &demod_buffers,
-    PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t> &llr_buffers,
+    // PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, uint32_t> &llr_buffers,
     PtrCube<kFrameWnd, kMaxSymbols, kMaxUEs, int8_t> &decoded_buffers,
     PhyStats *in_phy_stats, Stats *in_stats_manager)
     : Doer(in_config, in_tid),
       demod_buffers_(demod_buffers),
-      llr_buffers_(llr_buffers),
+      // llr_buffers_(llr_buffers),
       decoded_buffers_(decoded_buffers),
       phy_stats_(in_phy_stats),
       scrambler_(std::make_unique<AgoraScrambler::Scrambler>()) {
@@ -385,14 +384,14 @@ EventData DoDecode_ACC::Launch(size_t tag) {
       // get mbuf from the ops_deq
 
       struct rte_bbdev_op_ldpc_dec *ops_td;
-      unsigned int i;
+      unsigned int i = 2;
       struct rte_bbdev_op_data *hard_output;
       struct rte_mbuf *temp_m;
       size_t offset = 0;
 
       for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){
         size_t BLER(0);
-        for (size_t temp_idx = 0; temp_idx < num_ul_syms; temp_idx++){
+        for (size_t temp_idx = 2; temp_idx < num_ul_syms; temp_idx++){
           ref_byte = 
             cfg_->GetInfoBits(cfg_->UlBits(), Direction::kUplink, temp_idx,
                               temp_ue_id, cur_cb_id);
@@ -406,15 +405,7 @@ EventData DoDecode_ACC::Launch(size_t tag) {
           ops_td = &ops_deq[i]->ldpc_dec;
           hard_output = &ops_td->hard_output;
           temp_m = hard_output->data;
-          uint32_t* temp_data = rte_pktmbuf_mtod(temp_m, uint32_t*);
-
-          if(kPrintTxByte){
-            std::cout<<"ul_syms is: "<< temp_idx << ": ";
-            // // std::cout<<"tx_byte is: "<< tx_byte <<std::endl;
-            // printf("%02X ", tx_byte);
-            // std::cout<<std::endl;
-            print_casted_uint8_hex(ref_byte, num_bytes_per_cb);
-          }
+          uint8_t* temp_data = rte_pktmbuf_mtod(temp_m, uint8_t*);
 
           // If temp_m contains multiple bytes, use memcmp to compare
           if (kPrintACC100Byte){
@@ -426,12 +417,12 @@ EventData DoDecode_ACC::Launch(size_t tag) {
             }
           }
 
-          // std::cout << "Content of tx_word: " << tx_word << std::endl; // Prints in hexadecimal format
-          if (memcmp(temp_data, ref_byte, num_bytes_per_cb) != 0) {
-            // Data matches, do something
-            block_error++;
+          size_t memcmp_ret = memcmp(reinterpret_cast<uint8_t*>(temp_data), reinterpret_cast<uint8_t*>(ref_byte), num_bytes_per_cb);
+        // std::cout << "memcmp_ret is: " << memcmp_ret << std::endl;
+          if (memcmp_ret != 0) {
+              // Data matches, do something
+              block_error++;
           }
-
           i++;
         }
         phy_stats_->UpdateDecodedBits(temp_ue_id, symbol_offset, frame_slot,
@@ -464,15 +455,14 @@ EventData DoDecode_ACC::Launch(size_t tag) {
   if ((symbol_idx_ul == num_ul_syms - 1) && (ue_id == num_ue - 1)) {
     size_t start_tsc = GetTime::WorkerRdtsc();
 
-    uint32_t *llr_buffer_ptr;
+    int8_t *llr_buffer_ptr;
     struct rte_mbuf *m_head;
     struct rte_mbuf *m_head_out;
 
-    llr_buffer_ptr = llr_buffers_[frame_slot][symbol_idx_ul][ue_id] +
+    llr_buffer_ptr = demod_buffers_[frame_slot][symbol_idx_ul][ue_id] +
                             (cfg_->ModOrderBits(Direction::kUplink) *
                               (ldpc_config.NumCbCodewLen() * cur_cb_id));
 
-    uint8_t* ref_byte_new_new = reinterpret_cast<uint8_t*>(llr_buffer_ptr);  
 
     if (symbol_idx_ul == 11 && frame_id > 100 && frame_id % 100 == 0 && kPrintLLRData) {
         std::printf("LLR data, symbol_offset: %zu\n", symbol_offset);
@@ -481,9 +471,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
         }
         std::printf("\n");
     }
-
-    int8_t* ref_byte_cp = cfg_->GetInfoBits(cfg_->UlBits(), Direction::kUplink, symbol_idx_ul, ue_id, cur_cb_id);
-    uint8_t* ref_byte_new = reinterpret_cast<uint8_t*>(ref_byte_cp);
 
     char *data;
     struct rte_bbdev_op_data *bufs = *inputs;
@@ -507,16 +494,9 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     bufs_out[0].data = m_head_out;
     bufs_out[0].offset = 0;
     bufs_out[0].length = 0;
-
-    // Prepare the mbuf to receive the output data
-    char *data_out = rte_pktmbuf_append(m_head_out, ldpc_config.NumCbCodewLen());
-    assert(data_out == RTE_PTR_ALIGN(data_out, min_alignment));
-
     // BUG: This line causes a irregular stop of the program when fft_size = 4096,
     //      ofdm_data_num = 3168 = demul_block_size = beam_block_size, SISO, any
     //      sampling rate.
-    rte_memcpy(data_out, ref_byte_new, ldpc_config.NumCbCodewLen());
-
     bufs_out[0].length += ldpc_config.NumCbCodewLen();
 
     ref_dec_op[enq_index]->ldpc_dec.input = *inputs[0];
@@ -541,14 +521,9 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     deq = 0;
     enq_index = 0;
 
-    // if (cfg_->ScrambleEnabled()) {
-    //   scrambler_->Descramble(decoded_buffer_ptr, num_bytes_per_cb);
-    // }
-
     size_t start_tsc2 = GetTime::WorkerRdtsc();
     duration_stat_->task_duration_[2] += start_tsc2 - start_tsc1;
 
-    size_t BLER(0);
     uint8_t rx_byte[MAX_RX_BYTE_SIZE];
     int8_t* ref_byte;
     uint8_t tx_byte;
@@ -564,7 +539,7 @@ EventData DoDecode_ACC::Launch(size_t tag) {
       unsigned int i = 2;
       struct rte_bbdev_op_data *hard_output;
       struct rte_mbuf *temp_m;
-      size_t offset = 0;
+      // size_t offset = 0;
 
       for (size_t temp_ue_id = 0; temp_ue_id < num_ue; temp_ue_id++){
         for (size_t temp_idx = 2; temp_idx < num_ul_syms; temp_idx++){
@@ -574,8 +549,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
           tx_byte = static_cast<uint8_t>(
             cfg_->GetInfoBits(cfg_->UlBits(), Direction::kUplink, temp_idx,
                               temp_ue_id, cur_cb_id)[i]);
-          phy_stats_->UpdateBitErrors(temp_ue_id, symbol_offset, frame_slot,
-                                      tx_byte, tx_byte);
           // tx_word = static_cast<uint8_t>(tx_byte);
 
           ops_td = &ops_deq[i]->ldpc_dec;
@@ -583,14 +556,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
           temp_m = hard_output->data;
           uint8_t* temp_data = rte_pktmbuf_mtod(temp_m, uint8_t*);
           
-          if(kPrintTxByte){
-            std::cout<<"ul_syms is: "<< temp_idx << ": ";
-            // // std::cout<<"tx_byte is: "<< tx_byte <<std::endl;
-            // printf("%02X ", tx_byte);
-            // std::cout<<std::endl;
-            // print_casted_uint8_hex(ref_byte, num_bytes_per_cb);
-          }
-
           // If temp_m contains multiple bytes, use memcmp to compare
           if (cfg_->ScrambleEnabled()) {
             scrambler_->Descramble(temp_data, num_bytes_per_cb);
@@ -653,30 +618,22 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     // std::cout<<"symbol_idx_ul is: " << symbol_idx_ul << ", ue_id is: " << ue_id << std::endl;
     size_t start_tsc_else = GetTime::WorkerRdtsc();
 
-    uint32_t *llr_buffer_ptr;
+    int8_t *llr_buffer_ptr;
     struct rte_mbuf *m_head;
     struct rte_mbuf *m_head_out;
 
-    llr_buffer_ptr = llr_buffers_[frame_slot][symbol_idx_ul][ue_id] +
+    llr_buffer_ptr = demod_buffers_[frame_slot][symbol_idx_ul][ue_id] +
                             (cfg_->ModOrderBits(Direction::kUplink) *
                               (ldpc_config.NumCbCodewLen() * cur_cb_id));     
-
-    uint8_t* ref_byte_new_new = reinterpret_cast<uint8_t*>(llr_buffer_ptr);  
-
-    // int8_t arr[ldpc_config.NumCbCodewLen()];
-    // memset(arr, 0, sizeof(arr));  // Initialize all elements to 0
 
     if (symbol_idx_ul == 14 && frame_id > 100 && frame_id % 100 == 0 && kPrintLLRData) {
         std::printf("Hex: LLR data, symbol_offset, symbol_idx is: %zu\n", symbol_idx_ul);
         for (size_t i = 0; i < ldpc_config.NumCbCodewLen(); i++) {
             // Cast to uint8_t to ensure correct printing of the byte in hexadecimal
-            std::printf("%04X ", static_cast<uint32_t>(*(llr_buffer_ptr + i)));
+            std::printf("%02X ", static_cast<uint8_t>(*(llr_buffer_ptr + i)));
         }
         std::printf("\n");
     }
-
-    int8_t* ref_byte = cfg_->GetInfoBits(cfg_->UlBits(), Direction::kUplink, symbol_idx_ul, ue_id, cur_cb_id);
-    uint8_t* ref_byte_new = reinterpret_cast<uint8_t*>(ref_byte);
  
     char *data;
     struct rte_bbdev_op_data *bufs = *inputs;
@@ -694,8 +651,6 @@ EventData DoDecode_ACC::Launch(size_t tag) {
               ldpc_config.NumCbCodewLen());
     bufs[0].length += ldpc_config.NumCbCodewLen();
 
-    ldpc_input_llr_scaling(*inputs, 8, 1);
-
     rte_bbdev_op_data *bufs_out = *hard_outputs;
     m_head_out = rte_pktmbuf_alloc(out_mbuf_pool);
 
@@ -704,13 +659,13 @@ EventData DoDecode_ACC::Launch(size_t tag) {
     bufs_out[0].length = 0;
 
     // Prepare the mbuf to receive the output data
-    char *data_out = rte_pktmbuf_append(m_head_out, ldpc_config.NumCbCodewLen());
-    assert(data_out == RTE_PTR_ALIGN(data_out, min_alignment));
+    // char *data_out = rte_pktmbuf_append(m_head_out, ldpc_config.NumCbCodewLen());
+    // assert(data_out == RTE_PTR_ALIGN(data_out, min_alignment));
 
     // BUG: This line causes a irregular stop of the program when fft_size = 4096,
     //      ofdm_data_num = 3168 = demul_block_size = beam_block_size, SISO, any
     //      sampling rate.
-    rte_memcpy(data_out, ref_byte_new, ldpc_config.NumCbCodewLen());
+    // rte_memcpy(data_out, ref_byte_new, ldpc_config.NumCbCodewLen());
     bufs_out[0].length += ldpc_config.NumCbCodewLen();
 
     ref_dec_op[enq_index]->ldpc_dec.input = *inputs[0];
@@ -756,7 +711,7 @@ EventData DoDecode_ACC::Launch(size_t tag) {
       }
 
       if (memcmp(mbuf_data, llr_buffer_ptr, data_length) == 0) {
-      std::printf("Data in inputs[%zu].data matches llr_buffer_ptr\n", 0 );
+      std::printf("Data in inputs[%u].data matches llr_buffer_ptr\n", 0 );
   } else {
       std::printf("Data mismatch in inputs[%zu].data\n", 0);
 
