@@ -34,6 +34,7 @@ Below are Savannah-related variables and their available and desired values.
 | ---------------- | ----------------------------------- | ----------- | ----------- |
 | `TIME_EXCLUSIVE` | True , False                        | True        | True        |
 | `LDPC_TYPE`      | FlexRAN, ACC100                     | ACC100      | FlexRAN     |
+| `GENDATA_ENCODE` | FlexRAN, ACC100                     | ACC100      | FlexRAN     |
 | `LDPC_ENQ_BULK`  | True, False                         | False       | False       |
 | `MAT_OP_TYPE`    | ARMA_CUBE <br> ARMA_VEC <br> AVX512 | AVX512      | AVX512      |
 | `SINGLE_THREAD`  | True, False                         | True        | False       |
