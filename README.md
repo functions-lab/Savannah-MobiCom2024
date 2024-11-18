@@ -65,9 +65,14 @@ We provide `savannah.sh` as an unified control to compile, generate data, and ru
 Here we lists the usage to run Savannah-sc and Savannah-mc in emulated-RU mode.
 Please use `savannah.sh -h` to read for more details.
 
-### Run with Emulated-RU
+Before running either SIMulation Mode or RRU mode, please generate data by using:
+```bash
+$ sudo LD_LIBRARY_PATH=${LD_LIBRARY_PATH} ./build/data_generator --conf_file <config_file>
+```
 
+### Run with Emulated-RU
 Run the base station (BS, main program) in one terminal and the UE in the other terminal.
+
 ```bash
 # BS: -x: execution, -s: simulation mode, -r: root privilege, required for ACC100
 $ savannah.sh -x -s -r
@@ -93,6 +98,9 @@ $ savannah.sh -u -r
 
 `savannah.sh` will automatically record `stdout` to `log/` and marked filename with a timestamp.
 Please create `<savannah folder>/log/` folder for this.
+
+Technical details and performance results can be found in
+ * Zhenzhou Qi*, Chung-Hsuan Tung*, Anuj Kalia, and Tingjun Chen, "Savannah: Efficient mmWave Baseband Processing with Minimal and Heterogeneous Resources," in Proc. of ACM MobiCom, November 2024 ([video](https://youtu.be/eIvQwMI5L7A)).
 
 ---
 # Agora
