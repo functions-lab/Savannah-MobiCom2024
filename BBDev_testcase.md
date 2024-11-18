@@ -71,6 +71,11 @@ Savannah-sc is compatible with DPDK library BBDev, this README page aims to help
   $ sudo dpdk-devbind.py -b igb_uio <ACC100_ADDR>
   $ echo 2 | sudo tee /sys/bus/pci/devices/<ACC100_ADDR>/max_vfs
   ```
+* If you wish to use VF functions, you will also need to bind igb_uio to the VF addresses:
+  ```
+  $ sudo dpdk-devbind.py -b igb_uio <ACC100_VF_ADDR>
+  ```
+  
 * Configure the card using [pf_bb_config](https://github.com/intel/pf-bb-config).
   ```
   $ cd <pf_bb_config folder>
@@ -83,6 +88,11 @@ Savannah-sc is compatible with DPDK library BBDev, this README page aims to help
   Sun Aug  6 22:42:01 2023:INFO:PF ACC100 configuration complete
   Sun Aug  6 22:42:01 2023:INFO:ACC100 PF [0000:17:00.0] configuration complete!
   ```
+* if you wish to use VF functions:
+  ```
+  $ sudo ./pf_bb_config ACC100 -c acc100_config_<x>vf_4g5g.cfg   # x refers to how many VF addresses you wish to configure and enable
+  ```
+  
 ## Running default validation test:
 * Please quickly run a the default validation test several times to make sure ACC100 works normally on your device:
   ```
